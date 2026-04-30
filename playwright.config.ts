@@ -9,6 +9,7 @@ export default defineConfig({
     ['json', { outputFile: 'output/raw.json' }],
   ],
   use: {
+    channel: 'chrome',
     userAgent: 'RyzeQABot/0.1 (+pm@ryze.example)',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
@@ -40,7 +41,7 @@ export default defineConfig({
     {
       name: 'lighthouse',
       use: {
-        browserName: 'chromium',
+        channel: 'chrome',
         launchOptions: { args: ['--remote-debugging-port=9222'] },
       },
     },
