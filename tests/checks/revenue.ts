@@ -1,0 +1,63 @@
+import type { Page } from '@playwright/test';
+import type { BugCollector } from '../fixtures/bug-collector.js';
+import type { Viewport } from '../../src/types.js';
+
+const PRICE_SELECTORS = [
+  '[data-product-price]',
+  '.price__current',
+  '.price',
+  '[class*="price"]',
+];
+
+const ATC_SELECTORS = /add to cart|subscribe|buy now/i;
+
+export async function runRevenueCheck(
+  page: Page,
+  bugs: BugCollector,
+  viewport: Viewport,
+): Promise<void> {
+  const url = page.url();
+
+  if (url.includes('/products/')) {
+    // Check price renders
+    let priceFound = false;
+    for (const sel of PRICE_SELECTORS) {
+      const text = await page.locator(sel).first().textContent().catch(() => null);
+      if (text && /\$\d/.test(text)) { priceFound = true; break; }
+    }
+    if (!priceFound) {
+      bugs.add({ ruleId: 'revenue:no-price', severity: 'critical', bugClass: 'revenue',
+        message: `No visible price found on ${url}`, url, viewport });
+    }
+
+    // Check Add-to-Cart button
+    const atc = page.getByRole('button', { name: ATC_SELECTORS }).first();
+    const atcVisible = await atc.isVisible().catch(() => false);
+    if (!atcVisible) {
+      bugs.add({ ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
+        message: `No Add-to-Cart button visible on ${url}`, url, viewport });
+      return; // can't proceed without ATC
+    }
+
+    // Click ATC and verify cart
+    await atc.click();
+    await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
+    await page.goto('/cart');
+    await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
+
+    const subtotal = await page.locator('[data-cart-subtotal], .cart__subtotal, [class*="subtotal"]')
+      .first().textContent().catch(() => null);
+    if (!subtotal || !/\$\d/.test(subtotal)) {
+      bugs.add({ ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
+        message: `Cart subtotal missing/invalid after ATC from ${url}`, url, viewport });
+    }
+
+    const checkoutBtn = page.locator('button[name="checkout"], a[href*="checkout"]').first();
+    const checkoutEnabled = await checkoutBtn.isEnabled().catch(() => false);
+    if (!checkoutEnabled) {
+      bugs.add({ ruleId: 'revenue:checkout-disabled', severity: 'critical', bugClass: 'revenue',
+        message: `Checkout button disabled with item in cart (came from ${url})`, url, viewport });
+    }
+    // STOP HERE — do not click checkout
+  }
+}
