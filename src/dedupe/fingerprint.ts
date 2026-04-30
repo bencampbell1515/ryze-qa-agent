@@ -107,7 +107,7 @@ export function deduplicateBugs(
   return records;
 }
 
-function buildTitle(inst: BugInstance): string {
+export function buildTitle(inst: BugInstance): string {
   const parts = inst.ruleId.split(':');
   const category = parts[0] ?? inst.ruleId;
   const detail = parts[1] ?? '';
