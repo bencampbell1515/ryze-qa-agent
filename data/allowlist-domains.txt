@@ -1,0 +1,14 @@
+klaviyo.com
+gorgias.com
+connect.facebook.net
+facebook.com
+analytics.tiktok.com
+tiktok.com
+googletagmanager.com
+google-analytics.com
+doubleclick.net
+edgemesh.com
+shopify.com
+myshopify.com
+cdn.shopify.com
+shopifycloud.com

@@ -1,0 +1,18 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "dictionaryDefinitions": [
+    {
+      "name": "ryze-brand",
+      "path": "./data/brand-dictionary.txt",
+      "addWords": true
+    }
+  ],
+  "dictionaries": ["en_US", "ryze-brand"],
+  "ignorePaths": [
+    "node_modules",
+    "output",
+    "dist",
+    "data/bugs.jsonl"
+  ]
+}
