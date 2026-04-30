@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright *)",
+      "Bash(pnpm *)",
+      "Bash(tsx *)",
+      "Read(./output/**)",
+      "Write(./output/**)",
+      "Read(./data/**)",
+      "Write(./data/**)"
+    ],
+    "deny": [
+      "Bash(* checkout * pay *)",
+      "Edit(./.env*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "command": "pnpm tsc --noEmit 2>&1 | head -20"
+      }
+    ]
+  }
+}
