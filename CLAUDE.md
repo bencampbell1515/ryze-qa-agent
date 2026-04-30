@@ -10,11 +10,11 @@ Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesu
 ## Commands
 
 ```bash
-pnpm install          # install deps (Node 20+)
-pnpm test:crawl       # discover URLs → output/url-list.json
-pnpm test:audit       # run all checks → output/bugs.jsonl
-pnpm report           # dedupe + build .docx
-pnpm full-audit       # crawl + audit + report in sequence
+npm install               # install deps (Node 20+, uses system Chrome — no browser download)
+npm run test:crawl        # discover URLs → output/url-list.json
+npm run test:audit        # run all checks → output/bugs.jsonl
+npm run report            # dedupe + build .docx
+npm run full-audit        # crawl + audit + report in sequence
 ```
 
 ---

@@ -1,14 +1,15 @@
-import sharp from 'sharp';
-// @ts-expect-error — no type declarations for sharp-phash
-import phash from 'sharp-phash';
+import { createRequire } from 'node:module';
+
+const _require = createRequire(import.meta.url);
+type PhashFn = (image: Buffer) => Promise<string>;
+const phash = _require('sharp-phash') as PhashFn;
 
 /**
  * Compute a 64-bit perceptual dHash of a PNG buffer.
  * Returns a hex string.
  */
 export async function computeHash(imageBuffer: Buffer): Promise<string> {
-  const hash: string = await phash(imageBuffer);
-  return hash;
+  return phash(imageBuffer);
 }
 
 /**

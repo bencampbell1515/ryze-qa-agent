@@ -94,7 +94,7 @@ export async function buildDocx(
     rows: [
       new TableRow({
         children: ['Severity', 'Count'].map(
-          (t) => new TableCell({ children: [new Paragraph({ text: t, bold: true } as Parameters<typeof Paragraph>[0])] }),
+          (t) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true })] })] }),
         ),
       }),
       ...(['critical', 'high', 'medium', 'low'] as Severity[]).map(
