@@ -6,6 +6,8 @@ const NOISE_HOSTS = [
   'klaviyo.com', 'gorgias.com', 'connect.facebook.net',
   'facebook.com', 'analytics.tiktok.com', 'tiktok.com',
   'googletagmanager.com', 'google-analytics.com', 'doubleclick.net',
+  'snapchat.com', 'trkn.us', 'shoplift.ai', 't.vibe.co',
+  'monorail-edge.shopifysvc.com',
 ];
 
 const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/'];

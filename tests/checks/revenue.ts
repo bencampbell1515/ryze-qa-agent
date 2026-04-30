@@ -34,8 +34,9 @@ export async function runRevenueCheck(
         message: `No visible price found on ${url}`, url, viewport });
     }
 
-    // Check Add-to-Cart button presence
+    // Check Add-to-Cart button presence — wait up to 5s for JS to render it
     const atc = page.getByRole('button', { name: ATC_SELECTORS }).first();
+    await atc.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
     const atcVisible = await atc.isVisible().catch(() => false);
     if (!atcVisible) {
       bugs.add({ ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
