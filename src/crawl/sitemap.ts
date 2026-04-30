@@ -1,5 +1,9 @@
 import { XMLParser } from 'fast-xml-parser';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { UrlList } from '../types.js';
+
+const execFileAsync = promisify(execFile);
 
 const SITEMAP_URLS = [
   'https://www.ryzesuperfoods.com/sitemap.xml',
@@ -51,6 +55,21 @@ function categorize(url: string): keyof UrlList | null {
 }
 
 /**
+ * Fetch URL body via curl -sL, which handles Edgemesh's cookie-based redirect
+ * challenge that Node.js fetch cannot pass (TLS fingerprint discrimination).
+ */
+async function curlFetch(url: string): Promise<string> {
+  const { stdout } = await execFileAsync('curl', [
+    '-sL',
+    '--max-redirs', '20',
+    '-A', 'RyzeQABot/0.1 (+pm@ryze.example)',
+    '--fail-with-body',
+    url,
+  ]);
+  return stdout;
+}
+
+/**
  * Fetch sitemaps for both RYZE sites, categorize URLs, and return the UrlList.
  * Caller is responsible for robots.txt filtering (use robots-parser).
  */
@@ -74,14 +93,13 @@ export async function discoverUrls(): Promise<UrlList> {
     if (visited.has(url)) continue;
     visited.add(url);
 
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'RyzeQABot/0.1 (+pm@ryze.example)' },
-    });
-    if (!res.ok) {
-      console.warn(`Sitemap fetch failed: ${url} → ${res.status}`);
+    let xml: string;
+    try {
+      xml = await curlFetch(url);
+    } catch (err) {
+      console.warn(`Sitemap fetch failed: ${url} → ${(err as Error).message}`);
       continue;
     }
-    const xml = await res.text();
     const locs = parseLocUrls(xml);
 
     for (const loc of locs) {

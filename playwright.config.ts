@@ -32,11 +32,11 @@ export default defineConfig({
     },
     {
       name: 'tablet',
-      use: { ...devices['iPad (gen 7)'] },
+      use: { browserName: 'chromium', channel: 'chrome', viewport: { width: 768, height: 1024 } },
     },
     {
       name: 'mobile',
-      use: { ...devices['iPhone 14'] },
+      use: { browserName: 'chromium', channel: 'chrome', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
     },
     {
       name: 'lighthouse',

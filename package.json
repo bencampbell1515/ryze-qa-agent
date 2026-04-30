@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:crawl": "playwright test tests/crawl.spec.ts --grep @crawl",
+    "test:crawl": "tsx scripts/crawl.ts",
     "test:audit": "playwright test tests/crawl.spec.ts --grep @audit",
     "report": "tsx scripts/report.ts",
     "full-audit": "npm run test:crawl && npm run test:audit && npm run report",
