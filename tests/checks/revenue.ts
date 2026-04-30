@@ -42,22 +42,37 @@ export async function runRevenueCheck(
     // Click ATC and verify cart
     await atc.click();
     await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
-    await page.goto('/cart');
+    const cartUrl = new URL('/cart', page.url()).toString();
+    await page.goto(cartUrl);
     await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
 
+    await runCartChecks(page, bugs, viewport, url);
+  }
+
+  // Run cart checks when navigated directly to /cart
+  if (url.includes('/cart')) {
+    await runCartChecks(page, bugs, viewport, url);
+  }
+}
+
+async function runCartChecks(
+  page: Page,
+  bugs: BugCollector,
+  viewport: Viewport,
+  sourceUrl: string,
+): Promise<void> {
     const subtotal = await page.locator('[data-cart-subtotal], .cart__subtotal, [class*="subtotal"]')
       .first().textContent().catch(() => null);
     if (!subtotal || !/\$\d/.test(subtotal)) {
       bugs.add({ ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
-        message: `Cart subtotal missing/invalid after ATC from ${url}`, url, viewport });
+        message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport });
     }
 
     const checkoutBtn = page.locator('button[name="checkout"], a[href*="checkout"]').first();
     const checkoutEnabled = await checkoutBtn.isEnabled().catch(() => false);
     if (!checkoutEnabled) {
       bugs.add({ ruleId: 'revenue:checkout-disabled', severity: 'critical', bugClass: 'revenue',
-        message: `Checkout button disabled with item in cart (came from ${url})`, url, viewport });
+        message: `Checkout button disabled on cart (came from ${sourceUrl})`, url: page.url(), viewport });
     }
     // STOP HERE — do not click checkout
-  }
 }
