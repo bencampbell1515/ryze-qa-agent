@@ -1,0 +1,11 @@
+node_modules/
+dist/
+output/screenshots/
+output/lighthouse-reports/
+output/*.docx
+output/*.json
+data/bugs.jsonl
+test-results/
+playwright-report/
+.DS_Store
+*.env
