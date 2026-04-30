@@ -47,8 +47,9 @@ test('@crawl — discover URLs from sitemaps', async ({ page }) => {
 // ── @audit tag: run all checks across all URLs ────────────────────────────
 
 test('@audit — run full audit across all URLs', async ({ page, bugs }, testInfo) => {
+  test.setTimeout(0); // audit crawls 200+ URLs — no wall-clock limit
   if (!existsSync(URL_LIST_PATH)) {
-    throw new Error('Run pnpm test:crawl first to generate url-list.json');
+    throw new Error('Run npm run test:crawl first to generate url-list.json');
   }
 
   const urlList: UrlList = JSON.parse(readFileSync(URL_LIST_PATH, 'utf8'));
@@ -64,12 +65,13 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     ...urlList.blog,
   ];
 
+  // Attach listeners once — they fire on all navigations within this page
+  attachConsoleListeners(page, bugs, viewport);
+  attachNetworkListeners(page, bugs, viewport);
+
   for (const url of allUrls) {
     await limit(async () => {
-      attachConsoleListeners(page, bugs, viewport);
-      attachNetworkListeners(page, bugs, viewport);
-
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+      await page.goto(url, { waitUntil: 'load', timeout: 30_000 });
       await triggerLazyLoad(page);
 
       await runA11yCheck(page, bugs, viewport);

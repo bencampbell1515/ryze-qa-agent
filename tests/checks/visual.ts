@@ -15,9 +15,8 @@ const VOLATILE_SELECTORS = [
  */
 export async function triggerLazyLoad(page: Page): Promise<void> {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
 }
 
 /**

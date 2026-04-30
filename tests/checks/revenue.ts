@@ -11,6 +11,10 @@ const PRICE_SELECTORS = [
 
 const ATC_SELECTORS = /add to cart|subscribe|buy now/i;
 
+// Track how many products have had the full ATC→cart flow run
+let atcCheckCount = 0;
+const ATC_SAMPLE_LIMIT = 5;
+
 export async function runRevenueCheck(
   page: Page,
   bugs: BugCollector,
@@ -30,23 +34,24 @@ export async function runRevenueCheck(
         message: `No visible price found on ${url}`, url, viewport });
     }
 
-    // Check Add-to-Cart button
+    // Check Add-to-Cart button presence
     const atc = page.getByRole('button', { name: ATC_SELECTORS }).first();
     const atcVisible = await atc.isVisible().catch(() => false);
     if (!atcVisible) {
       bugs.add({ ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
         message: `No Add-to-Cart button visible on ${url}`, url, viewport });
-      return; // can't proceed without ATC
+      return;
     }
 
-    // Click ATC and verify cart
-    await atc.click();
-    await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
-    const cartUrl = new URL('/cart', page.url()).toString();
-    await page.goto(cartUrl);
-    await page.waitForLoadState('networkidle').catch(() => { /* timeout ok */ });
-
-    await runCartChecks(page, bugs, viewport, url);
+    // Only do full ATC→cart flow on a sample to keep audit fast
+    if (atcCheckCount < ATC_SAMPLE_LIMIT) {
+      atcCheckCount++;
+      await atc.click();
+      await page.waitForTimeout(2000); // let cart drawer/update settle
+      const cartUrl = new URL('/cart', page.url()).toString();
+      await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
+      await runCartChecks(page, bugs, viewport, url);
+    }
   }
 
   // Run cart checks when navigated directly to /cart

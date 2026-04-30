@@ -49,43 +49,23 @@ export function shouldMerge(
   return false;
 }
 
-/** Group BugInstances into deduplicated BugRecords. */
+/** Group BugInstances into deduplicated BugRecords. O(n) via fingerprint hash map. */
 export function deduplicateBugs(
   instances: Array<BugInstance & { dHash?: string; sectionAnchor?: string }>,
 ): BugRecord[] {
-  const records: BugRecord[] = [];
+  const fpMap = new Map<string, BugRecord>();
 
   for (const inst of instances) {
     const anchor = inst.sectionAnchor ?? 'document';
     const fp = computeFingerprint(inst.ruleId, inst.message, anchor, inst.dHash);
 
-    let merged = false;
-    for (const rec of records) {
-      const testInst = {
-        ...inst,
-        sectionAnchor: anchor,
-      };
-      const repInst: BugInstance & { dHash?: string; sectionAnchor?: string } = {
-        ruleId: rec.ruleId,
-        severity: rec.severity,
-        bugClass: rec.bugClass,
-        message: inst.message,
-        url: rec.urls[0]!,
-        viewport: rec.viewports[0]!,
-        timestamp: '',
-        sectionAnchor: anchor,
-      };
-      if (shouldMerge(testInst, repInst)) {
-        if (!rec.urls.includes(inst.url)) rec.urls.push(inst.url);
-        if (!rec.viewports.includes(inst.viewport)) rec.viewports.push(inst.viewport);
-        rec.instanceCount++;
-        merged = true;
-        break;
-      }
-    }
-
-    if (!merged) {
-      records.push({
+    const existing = fpMap.get(fp);
+    if (existing) {
+      if (!existing.urls.includes(inst.url)) existing.urls.push(inst.url);
+      if (!existing.viewports.includes(inst.viewport)) existing.viewports.push(inst.viewport);
+      existing.instanceCount++;
+    } else {
+      const record: BugRecord = {
         fingerprint: fp,
         ruleId: inst.ruleId,
         severity: inst.severity,
@@ -100,11 +80,12 @@ export function deduplicateBugs(
         outerHTMLSnippet: inst.outerHTMLSnippet,
         helpUrl: inst.helpUrl,
         instanceCount: 1,
-      });
+      };
+      fpMap.set(fp, record);
     }
   }
 
-  return records;
+  return Array.from(fpMap.values());
 }
 
 export function buildTitle(inst: BugInstance): string {

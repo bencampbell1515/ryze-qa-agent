@@ -8,10 +8,14 @@ const NOISE_HOSTS = [
   'googletagmanager.com', 'google-analytics.com', 'doubleclick.net',
 ];
 
+const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/'];
+
 function isNoise(url: string): boolean {
   try {
     const host = new URL(url).hostname;
-    return NOISE_HOSTS.some((d) => host.endsWith(d));
+    if (NOISE_HOSTS.some((d) => host.endsWith(d))) return true;
+    if (NOISE_URL_PATTERNS.some((p) => url.includes(p))) return true;
+    return false;
   } catch { return false; }
 }
 
@@ -22,11 +26,13 @@ export function attachNetworkListeners(
 ): void {
   page.on('requestfailed', (req) => {
     if (isNoise(req.url())) return;
+    const errText = req.failure()?.errorText ?? 'unknown';
+    if (errText.includes('ERR_ABORTED')) return; // request cancelled during navigation
     bugs.add({
       ruleId: 'network:failed',
       severity: 'high',
       bugClass: 'network',
-      message: `Request failed: ${req.url()} (${req.failure()?.errorText ?? 'unknown'})`,
+      message: `Request failed: ${req.url()} (${errText})`,
       url: page.url(),
       viewport,
     });

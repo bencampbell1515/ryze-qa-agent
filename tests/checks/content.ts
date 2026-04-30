@@ -1,7 +1,9 @@
 import { execSync } from 'node:child_process';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const CSPELL_BIN = join(process.cwd(), 'node_modules', '.bin', 'cspell');
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
@@ -27,14 +29,15 @@ export async function runContentCheck(
   });
 
   if (!text.trim()) return;
+  if (!existsSync(CSPELL_BIN)) return; // skip if cspell not installed
 
   const tmpFile = join(tmpdir(), `ryze-content-${Date.now()}.txt`);
   try {
     writeFileSync(tmpFile, text);
 
     const result = execSync(
-      `npx cspell "${tmpFile}" --words-only --no-progress --config "${join(process.cwd(), 'cspell.json')}" 2>&1`,
-      { encoding: 'utf8', stdio: 'pipe' },
+      `"${CSPELL_BIN}" "${tmpFile}" --words-only --no-progress --config "${join(process.cwd(), 'cspell.json')}" 2>&1`,
+      { encoding: 'utf8', stdio: 'pipe', timeout: 15_000 },
     ).trim();
 
     if (result) {
