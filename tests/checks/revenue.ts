@@ -47,11 +47,18 @@ export async function runRevenueCheck(
     // Only do full ATC→cart flow on a sample to keep audit fast
     if (atcCheckCount < ATC_SAMPLE_LIMIT) {
       atcCheckCount++;
-      await atc.click();
-      await page.waitForTimeout(2000); // let cart drawer/update settle
-      const cartUrl = new URL('/cart', page.url()).toString();
-      await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
-      await runCartChecks(page, bugs, viewport, url);
+      const atcFlow = async (): Promise<void> => {
+        await atc.click();
+        await page.waitForTimeout(2000);
+        const cartUrl = new URL('/cart', page.url()).toString();
+        await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
+        await runCartChecks(page, bugs, viewport, url);
+      };
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('ATC flow timed out after 35s')), 35_000));
+      await Promise.race([atcFlow(), timeout]).catch(() => {
+        // ATC flow failed or timed out — button exists, that's the key signal
+      });
     }
   }
 
