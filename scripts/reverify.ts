@@ -8,9 +8,7 @@ const SCORED_PATH = join(process.cwd(), 'data', 'scored-bugs.json');
 const TOP_N = 10;
 const NAV_TIMEOUT = 30_000;
 
-async function verifyBug(bug: ScoredBug): Promise<VerificationStatus> {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  const page = await browser.newPage();
+async function verifyBug(page: import('@playwright/test').Page, bug: ScoredBug): Promise<VerificationStatus> {
   try {
     await page.goto(bug.urls[0], { timeout: NAV_TIMEOUT, waitUntil: 'domcontentloaded' });
 
@@ -40,8 +38,6 @@ async function verifyBug(bug: ScoredBug): Promise<VerificationStatus> {
     return 'inconclusive';
   } catch {
     return 'inconclusive';
-  } finally {
-    await browser.close();
   }
 }
 
@@ -56,12 +52,19 @@ async function main(): Promise<void> {
 
   console.log(`Re-verifying top ${topBugs.length} findings...`);
 
-  for (const bug of topBugs) {
-    process.stdout.write(`  → [${bug.score.toFixed(1)}] ${bug.ruleId} @ ${bug.urls[0]}... `);
-    const status = await verifyBug(bug);
-    bug.verificationStatus = status;
-    const icon = status === 'confirmed' ? '✅' : status === 'could-not-reproduce' ? '❌' : '❓';
-    console.log(`${icon} ${status}`);
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const page = await browser.newPage();
+
+  try {
+    for (const bug of topBugs) {
+      process.stdout.write(`  → [${bug.score.toFixed(1)}] ${bug.ruleId} @ ${bug.urls[0]}... `);
+      const status = await verifyBug(page, bug);
+      bug.verificationStatus = status;
+      const icon = status === 'confirmed' ? '✅' : status === 'could-not-reproduce' ? '❌' : '❓';
+      console.log(`${icon} ${status}`);
+    }
+  } finally {
+    await browser.close();
   }
 
   writeFileSync(SCORED_PATH, JSON.stringify(bugs, null, 2));

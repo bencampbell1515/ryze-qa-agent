@@ -79,6 +79,11 @@ async function runPersonaAgent(
           console.warn(`  ⚠️  ${personaName} finding rejected (${check.reason}): ${url}`);
           continue;
         }
+        // Validate required DiscoveryFinding fields not covered by enforceEvidence
+        if (!candidate.severity || !candidate.bugClass || !candidate.ruleId) {
+          console.warn(`  ⚠️  ${personaName} finding rejected (missing severity/bugClass/ruleId): ${url}`);
+          continue;
+        }
         findings.push(candidate as DiscoveryFinding);
       }
     } catch (err) {
