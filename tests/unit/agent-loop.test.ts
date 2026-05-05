@@ -38,28 +38,20 @@ function makeMockClient(responses: Anthropic.Message[]): Anthropic {
 
 function makeEndTurnResponse(): Anthropic.Message {
   return {
-    id: 'msg_test',
-    type: 'message',
-    role: 'assistant',
-    content: [{ type: 'text', text: 'I have reviewed the pages.' }],
-    model: 'claude-sonnet-4-6',
-    stop_reason: 'end_turn',
-    stop_sequence: null,
-    usage: { input_tokens: 100, output_tokens: 20 },
-  };
+    id: 'msg_test', type: 'message', role: 'assistant',
+    content: [{ type: 'text', text: 'I have reviewed the pages.' }] as Anthropic.Message['content'],
+    model: 'claude-sonnet-4-6', stop_reason: 'end_turn', stop_sequence: null,
+    usage: { input_tokens: 100, output_tokens: 20 } as Anthropic.Message['usage'],
+  } as unknown as Anthropic.Message;
 }
 
 function makeDoneResponse(): Anthropic.Message {
   return {
-    id: 'msg_done',
-    type: 'message',
-    role: 'assistant',
-    content: [{ type: 'tool_use', id: 'tu_done', name: 'done', input: {} }],
-    model: 'claude-sonnet-4-6',
-    stop_reason: 'tool_use',
-    stop_sequence: null,
-    usage: { input_tokens: 100, output_tokens: 10 },
-  };
+    id: 'msg_done', type: 'message', role: 'assistant',
+    content: [{ type: 'tool_use', id: 'tu_done', name: 'done', input: {} }] as Anthropic.Message['content'],
+    model: 'claude-sonnet-4-6', stop_reason: 'tool_use', stop_sequence: null,
+    usage: { input_tokens: 100, output_tokens: 10 } as Anthropic.Message['usage'],
+  } as unknown as Anthropic.Message;
 }
 
 test.beforeEach(() => {
@@ -133,17 +125,11 @@ test('session respects sessionBudget URL cap', async ({}, testInfo) => {
   const discoveriesPath = join(TMP_DIR, `al-discoveries-${testInfo.workerIndex}.jsonl`);
   writeFileSync(discoveriesPath, '');
   const navigateResponse: Anthropic.Message = {
-    id: 'msg_nav',
-    type: 'message',
-    role: 'assistant',
-    content: [
-      { type: 'tool_use', id: 'tu_nav', name: 'navigate', input: { url: 'https://www.ryzesuperfoods.com/products/coffee' } },
-    ],
-    model: 'claude-sonnet-4-6',
-    stop_reason: 'tool_use',
-    stop_sequence: null,
-    usage: { input_tokens: 100, output_tokens: 20 },
-  };
+    id: 'msg_nav', type: 'message', role: 'assistant',
+    content: [{ type: 'tool_use', id: 'tu_nav', name: 'navigate', input: { url: 'https://www.ryzesuperfoods.com/products/coffee' } }] as Anthropic.Message['content'],
+    model: 'claude-sonnet-4-6', stop_reason: 'tool_use', stop_sequence: null,
+    usage: { input_tokens: 100, output_tokens: 20 } as Anthropic.Message['usage'],
+  } as unknown as Anthropic.Message;
   const client = makeMockClient([navigateResponse, makeDoneResponse()]);
   const result = await runSession({
     client,
