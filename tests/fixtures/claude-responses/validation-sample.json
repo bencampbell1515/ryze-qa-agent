@@ -1,0 +1,14 @@
+{
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"validated\": true, \"confidence\": 0.92, \"reason\": \"The screenshot confirms the broken image — a 404 placeholder is clearly visible in the hero section.\"}"
+    }
+  ],
+  "model": "claude-haiku-4-5-20251001",
+  "stop_reason": "end_turn",
+  "usage": { "input_tokens": 100, "output_tokens": 50 }
+}
