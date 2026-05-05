@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   mkdirSync(join(process.cwd(), 'data'), { recursive: true });
 
   // Step 1: Run validation and discovery in parallel
-  await Promise.all([runScript('validate'), runScript('discover')]);
+  await Promise.all([runScript('validate'), runScript('discover-agentic')]);
 
   // Step 2: Load validated bugs (fall back to raw if validation failed)
   const bugsSource = existsSync(VALIDATED_PATH) ? VALIDATED_PATH : BUGS_PATH;

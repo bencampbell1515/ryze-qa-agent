@@ -14,6 +14,7 @@
     "dismiss": "tsx scripts/dismiss.ts",
     "validate": "tsx scripts/validate.ts",
     "discover": "tsx scripts/discover.ts",
+    "discover:agentic": "tsx scripts/discover-agentic.ts",
     "reverify": "tsx scripts/reverify.ts",
     "orchestrate": "tsx scripts/orchestrate.ts",
     "full-audit": "npm run clean && npm run test:crawl && npm run test:audit && npm run report",
