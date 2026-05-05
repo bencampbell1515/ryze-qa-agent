@@ -38,7 +38,9 @@ export const test = base.extend<{ bugs: BugCollector }>({
   bugs: async ({ page: _page }, use, testInfo) => {
     const collector = new BugCollector(testInfo);
     await use(collector);
-    collector.flush();
+    // Don't flush partial data when the test failed and Playwright will retry it
+    const willRetry = testInfo.status !== 'passed' && testInfo.retry < testInfo.project.retries;
+    if (!willRetry) collector.flush();
   },
 });
 

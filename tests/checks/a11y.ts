@@ -2,6 +2,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { getSectionAnchor } from '../../src/dedupe/selector-path.js';
 
 const EXCLUDED_SELECTORS = [
   'iframe[src*="klaviyo"]',
@@ -31,6 +32,11 @@ export async function runA11yCheck(
         : ('medium' as const);
 
     for (const node of violation.nodes) {
+      const primarySelector = String(node.target[0] ?? '');
+      const sectionAnchor = primarySelector
+        ? await page.evaluate(getSectionAnchor, primarySelector).catch(() => 'document')
+        : 'document';
+
       bugs.add({
         ruleId: `axe:${violation.id}`,
         severity,
@@ -39,6 +45,7 @@ export async function runA11yCheck(
         url: page.url(),
         viewport,
         selector: node.target.join(', '),
+        sectionAnchor,
         helpUrl: violation.helpUrl,
         axeNodes: node.target.map(String),
       });

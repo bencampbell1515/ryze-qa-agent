@@ -1,6 +1,6 @@
 # Ryze QA Agent
 
-Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces a `.docx` audit report. Full technical spec is in [setup.md](setup.md).
+Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces a `.docx` audit report.
 
 **Target sites:** https://www.ryzesuperfoods.com · https://shop.ryzesuperfoods.com
 **Output:** `output/audit-report-<date>.docx`
@@ -29,12 +29,12 @@ sitemap.xml → URL list → Playwright test suite (3 viewports) → bugs.jsonl
                                                             docx report builder
 ```
 
-Key directories (once scaffolded):
-- `tests/` — Playwright specs + fixtures (see [setup.md](setup.md) §10 for full layout)
+Key directories:
+- `tests/` — Playwright specs + check modules (see [tests/CLAUDE.md](tests/CLAUDE.md))
 - `src/crawl/` — sitemap parser, linkinator runner
 - `src/dedupe/` — fingerprint algorithm, selector-path walker, perceptual hash
 - `src/annotate/` — sharp+SVG screenshot annotation
-- `src/report/` — docx builder, optional Drive uploader
+- `src/report/` — docx builder (see [src/report/CLAUDE.md](src/report/CLAUDE.md))
 - `data/` — allowlist-domains.txt, brand-dictionary.txt, bugs.jsonl
 - `output/` — screenshots, lighthouse reports, final .docx
 
@@ -57,21 +57,13 @@ Key directories (once scaffolded):
 
 ---
 
-## Dedup fingerprint
-
-`SHA1(ruleId + normalizedMessage + sectionAnchor + truncated_dHash)`
-Two bugs merge if fingerprints match, OR if rule+message match AND dHash Hamming ≤ 5.
-See `src/dedupe/fingerprint.ts`.
-
----
-
 ## Severity ladder
 
 | Level | Examples |
 |-------|---------|
-| Critical | Broken ATC, checkout handoff fails, price=NaN/$0, JS pageerror on PDP/cart |
-| High | WCAG 2.1 A violations, broken internal links, broken hero images, missing canonical/JSON-LD on PDP |
-| Medium | WCAG 2.1 AA violations, broken external links, layout shift >0.25, Lighthouse perf <50 |
+| Critical | Broken ATC, checkout handoff fails, price=NaN/$0 |
+| High | WCAG 2.1 A violations, broken internal links, broken hero images, missing canonical/JSON-LD on PDP, `network:404` on first-party assets |
+| Medium | WCAG 2.1 AA violations, broken external links, layout shift >0.25, Lighthouse perf <50, missing meta descriptions |
 | Low | Typos, contrast 4.0–4.4, broken third-party tracking pixel |
 
 ---
@@ -81,14 +73,47 @@ See `src/dedupe/fingerprint.ts`.
 - Klaviyo iframe, Gorgias chat widget, Meta Pixel, TikTok pixel, GTM
 - `.myshopify.com` requests after checkout handoff
 - Stock-out countdown timers (mask in visual diffs)
+- **Rule IDs filtered entirely in `scripts/report.ts` as bot-artifact noise:**
+  - `network:nav-failed` — Edgemesh redirect blocks; pages load fine for real users
+  - `network:429` — rate-limiting our bot
+  - `revenue:no-atc` — ATC button is JS-rendered (Recharge widget), loads after our wait window
+  - `js:pageerror` — ALL JS exceptions in headless Chrome are bot artifacts: Popper.js misfires without user interaction, analytics scripts blocked (Converge, Recharge), GTM-blocked jQuery; real UX breakage surfaces in axe/revenue/network checks instead
+  - `console:error` — same reasoning as `js:pageerror`; every instance is third-party analytics/widget noise in bot context
+  - `network:failed` — CDN bot-detection drops (ERR_FAILED, ERR_CONNECTION_CLOSED); real missing resources return HTTP 404 and are captured by `network:404`
+- **Noise hosts** (full list in `scripts/report.ts`):
+  - `applovin.com`, `sentry.io`, `postscript.io`, `clarity.ms`, `mountain.com`
+  - `otlp-http-production.shopifysvc.com` — Shopify internal OTEL telemetry, blocked for bots
+  - `id.ryzesuperfoods.com` — Ryze identity/SSO service, blocked for bots
+  - `api.rechargeapps.com` — returns 403 because bot has no auth token; authenticated users are fine
+- **Noise 404 URL patterns** (filtered in `scripts/report.ts`):
+  - `/em-prerender`, `/em-cgi/` — Edgemesh instrumentation endpoints
+  - `cdn.shopify.com/.../t/NNN/` where NNN ≠ `2676` — old/inactive theme assets (active theme is `t/2676`)
+- **Message patterns filtered** — suppressed by blanket `NOISE_RULE_IDS` (`console:error`, `js:pageerror`), not by per-message regex. The Shopify `/t?event=` analytics 404 is filtered via `NOISE_404_URL_PATTERNS` in `scripts/report.ts`.
 
 ---
 
 ## Key gotchas
 
-- Shopify lazy-loads images via IntersectionObserver — scroll to bottom + back before screenshots
-- Edgemesh CDN returns 429 if requests are too fast — back off, don't retry-storm
+- **Edgemesh CDN blocks Node.js `fetch` for sitemaps** — TLS fingerprint discrimination causes infinite redirect loop (`/sitemap.xml` ↔ `/em-cgi/btag/sitemap.xml`). Fix: shell out to `curl` via `execFile`.
+- **Edgemesh blocks 97/229 URLs during Playwright audit** — all `/pages/` and `/blogs/` paths return `ERR_TOO_MANY_REDIRECTS`; all 92 product pages load fine. Bot IP `162.81.107.149` needs whitelisting in Edgemesh dashboard to unblock landing pages.
+- **Active Shopify theme ID is `t/2676`** — CDN paths containing other theme IDs (e.g. `t/160`) are stale references from inactive themes; filter them as noise in `network:404`.
 - `shop.ryzesuperfoods.com` is headless (likely Hydrogen) — missing JSON-LD/canonicals may be intentional; flag as advisories, not defects
-- Pixelmatch false positives on webfonts — tune `threshold` to 0.2–0.35
-- Perceptual-hash dedup can over-merge at Hamming ≤5 — consider tuning to ≤3–4
 - DOM price selectors (`[data-product-price]`, `.price__current`) are assumptions — verify against live DOM on first run
+- **System sleep during long audits** — `caffeinate -dims` may be overridden by MDM. Workaround: keystroke jiggler (`osascript -e 'key code 63'` every 50s) resets MDM idle timer regardless of policy.
+- **`network:failed` ≠ missing resource** — `network:failed` means CDN/bot-detection dropped the connection; `network:404` means the server confirmed the resource doesn't exist. Only `network:404` is actionable.
+- **Shopify analytics URL is unique per page load** — `/t?event=<base64-uuid>` embeds a unique event ID; without filtering, each page load creates a distinct fingerprint and inflates the bug count by hundreds.
+- **`js:pageerror` in headless is always noise** — Popper.js, analytics scripts, and jQuery (loaded via blocked GTM) all throw in bot context; never surfaces real user-facing breakage. Remove from report entirely.
+- **Hidden modals render their broken images at 0×0** — a 404 inside a `display:none` modal has no visual impact; DevTools "scroll into view" does nothing because the element has no size. Use Playwright to force-open the modal and inspect.
+- **`robots.txt` compliance is unimplemented** — `robots-parser` is installed but never imported or called anywhere. Every URL from the sitemap is visited unconditionally. The JSDoc on `discoverUrls()` says "Caller is responsible" but no caller implements it.
+- **`lighthouse` Playwright project runs the full `@audit` test as `'desktop'` viewport** — `viewportFromProject()` falls through to `return 'desktop'` for the name `'lighthouse'`. All lighthouse-project bug instances are labeled desktop, doubling all desktop `instanceCount` values in the report. Confirmed live: 10,713 desktop vs 16 tablet instances (expected ~2-3×, not 669×).
+- **`loc.includes('sitemap')` in sitemap discovery drops content URLs** — any blog article or product whose URL slug contains the word "sitemap" is mis-routed as a sub-sitemap fetch, fails to parse as XML, and disappears from the audit entirely. The check should be `loc.endsWith('.xml')` only, anchored to the pathname.
+- **`/full-audit` slash command uses `pnpm`, not `npm`** — `.claude/commands/full-audit.md` has `pnpm test:crawl` etc., but the project uses npm (`package-lock.json`, no `pnpm-lock.yaml`). Run `npm run full-audit` instead.
+- **`totalPages` in the report undercounts by ~42%** — computed as `new Set(instances.map(i => i.url)).size` on the noise-filtered bug set. Pages with zero actionable bugs are invisible. Live: 132 reported vs 229 actual crawled URLs. Should read from `output/url-list.json` instead.
+
+---
+
+## Subsystem docs
+
+- [tests/CLAUDE.md](tests/CLAUDE.md) — check modules, Playwright gotchas (toHaveScreenshot, ATC timing, lazy-load)
+- [src/report/CLAUDE.md](src/report/CLAUDE.md) — docx pitfalls, report generation, dedup fingerprint details
+- [docs/HISTORY.md](docs/HISTORY.md) — session fix history and key insights

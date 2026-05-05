@@ -1,7 +1,6 @@
 import { test, expect } from './fixtures/bug-collector.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import pLimit from 'p-limit';
 import { discoverUrls } from '../src/crawl/sitemap.js';
 import { runA11yCheck } from './checks/a11y.js';
 import { attachConsoleListeners } from './checks/console.js';
@@ -14,7 +13,6 @@ import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
 const CRAWL_DELAY_MS = 1500;
-const limit = pLimit(2);
 
 function viewportFromProject(name: string | undefined): Viewport {
   if (!name) return 'desktop';
@@ -82,29 +80,27 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
   attachNetworkListeners(page, bugs, viewport);
 
   for (const url of allUrls) {
-    await limit(async () => {
-      const navOk = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => true).catch((err: Error) => {
-        bugs.add({ ruleId: 'network:nav-failed', severity: 'high', bugClass: 'network',
-          message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport });
-        return false;
-      });
-      if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS); return; }
-
-      await triggerLazyLoad(page);
-
-      await runA11yCheck(page, bugs, viewport);
-      await runSeoCheck(page, bugs, viewport);
-
-      if (url.includes('/products/') || url.includes('/cart')) {
-        await runRevenueCheck(page, bugs, viewport);
-      }
-
-      await runContentCheck(page, bugs, viewport);
-
-      const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
-      await takeScreenshot(page, slug, viewport).catch(() => {});
-
-      await page.waitForTimeout(CRAWL_DELAY_MS);
+    const navOk = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => true).catch((err: Error) => {
+      bugs.add({ ruleId: 'network:nav-failed', severity: 'high', bugClass: 'network',
+        message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport });
+      return false;
     });
+    if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS); continue; }
+
+    await triggerLazyLoad(page);
+
+    await runA11yCheck(page, bugs, viewport);
+    await runSeoCheck(page, bugs, viewport);
+
+    if (url.includes('/products/') || url.includes('/cart')) {
+      await runRevenueCheck(page, bugs, viewport);
+    }
+
+    await runContentCheck(page, bugs, viewport);
+
+    const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
+    await takeScreenshot(page, slug, viewport).catch(() => {});
+
+    await page.waitForTimeout(CRAWL_DELAY_MS);
   }
 });

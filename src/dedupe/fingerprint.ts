@@ -69,7 +69,11 @@ export function shouldMerge(a: BugInstance, b: BugInstance): boolean {
   return false;
 }
 
-/** Group BugInstances into deduplicated BugRecords. */
+/**
+ * Group BugInstances into deduplicated BugRecords.
+ * instanceCount = total audit events within a single clean run (viewports × pages affected).
+ * Run `npm run clean` between audits to prevent cross-run inflation.
+ */
 export function deduplicateBugs(instances: BugInstance[]): BugRecord[] {
   // DEDUP-001: store representative instance alongside each record for fuzzy pass
   const fpMap = new Map<string, { record: BugRecord; rep: BugInstance }>();
