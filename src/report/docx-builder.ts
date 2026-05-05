@@ -4,7 +4,7 @@ import {
   PageBreak, WidthType,
 } from 'docx';
 import { readFileSync, existsSync } from 'node:fs';
-import type { BugRecord, Severity } from '../types.js';
+import type { BugRecord, ScoredBug, Severity } from '../types.js';
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   critical: 0, high: 1, medium: 2, low: 3,
@@ -77,7 +77,7 @@ function bugSection(bug: BugRecord): Paragraph[] {
 }
 
 export async function buildDocx(
-  bugs: BugRecord[],
+  bugs: (BugRecord | ScoredBug)[],
   meta: { crawlDate: string; totalPages: number; sites: string[] },
 ): Promise<Buffer> {
   const sorted = [...bugs].sort(
@@ -120,6 +120,20 @@ export async function buildDocx(
 
           new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Severity Summary' }),
           summaryTable,
+          // AI pipeline summary — only shown when orchestrate.ts produces scored bugs
+          ...(bugs.some((b): b is ScoredBug => 'score' in b) ? (() => {
+            const scored = bugs.filter((b): b is ScoredBug => 'score' in b);
+            const discovery = scored.filter((b) => b.source === 'claude-discovery').length;
+            const verified = scored.filter((b) => b.verificationStatus === 'confirmed').length;
+            return [
+              new Paragraph({
+                spacing: { before: 120, after: 80 },
+                children: [
+                  new TextRun({ text: `AI-discovered findings: ${discovery}  |  Playwright-verified: ${verified}  |  Sorted by business impact score`, size: 18, color: '555555', italics: true }),
+                ],
+              }),
+            ];
+          })() : []),
           new Paragraph({ children: [new PageBreak()] }),
 
           ...(revenueBugs.length > 0
