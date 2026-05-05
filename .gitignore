@@ -10,3 +10,8 @@ test-results/
 playwright-report/
 .DS_Store
 *.env
+data/dismissed.jsonl
+data/report-history.jsonl
+data/validated-bugs.jsonl
+data/discoveries.jsonl
+data/scored-bugs.json
