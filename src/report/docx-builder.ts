@@ -6,7 +6,7 @@ import {
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import type { BugRecord, Severity } from '../types.js';
+import type { BugRecord, ScoredBug, Severity } from '../types.js';
 
 const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
 // Max display width in pixels at 96 DPI within 6.5in page (minus 0.5in indent)
@@ -168,7 +168,7 @@ async function bugEntry(bug: BugRecord, index: number): Promise<Paragraph[]> {
 }
 
 export async function buildDocx(
-  bugs: BugRecord[],
+  bugs: (BugRecord | ScoredBug)[],
   meta: { crawlDate: string; totalPages: number; sites: string[] },
 ): Promise<Buffer> {
   const sorted = [...bugs].sort(
@@ -217,6 +217,19 @@ export async function buildDocx(
     }
 
     children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
+  }
+
+  // AI pipeline summary — appended after summary table when orchestrate.ts produces scored bugs
+  if (bugs.some((b): b is ScoredBug => 'score' in b)) {
+    const scored = bugs.filter((b): b is ScoredBug => 'score' in b);
+    const discovery = scored.filter((b) => b.source === 'claude-discovery').length;
+    const verified = scored.filter((b) => b.verificationStatus === 'confirmed').length;
+    children.splice(2, 0, new Paragraph({
+      spacing: { before: 80, after: 160 },
+      children: [
+        new TextRun({ text: `AI-discovered findings: ${discovery}  |  Playwright-verified: ${verified}  |  Sorted by business impact score`, size: 18, color: '555555', italics: true }),
+      ],
+    }));
   }
 
   const doc = new Document({
