@@ -1,8 +1,9 @@
 import { XMLParser } from 'fast-xml-parser';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const robotsParser = require('robots-parser') as (url: string, txt: string) => { isAllowed(url: string, ua?: string): boolean | undefined };
+import robotsParserDefault from 'robots-parser';
+type RobotsParserFn = (url: string, robotstxt: string) => { isAllowed(url: string, ua?: string): boolean | undefined };
+const robotsParser = robotsParserDefault as unknown as RobotsParserFn;
 import type { UrlList } from '../types.js';
 
 const execFileAsync = promisify(execFile);
