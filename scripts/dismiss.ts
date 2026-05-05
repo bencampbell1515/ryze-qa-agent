@@ -1,5 +1,5 @@
 // scripts/dismiss.ts
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DismissedEntry } from '../src/types.js';
 
@@ -40,5 +40,6 @@ const entry: DismissedEntry = {
   dismissedAt: new Date().toISOString(),
 };
 
+mkdirSync(join(process.cwd(), 'data'), { recursive: true });
 appendFileSync(DISMISSED_PATH, JSON.stringify(entry) + '\n');
 console.log(`✅ Dismissed ${fingerprint}: "${reason}"`);
