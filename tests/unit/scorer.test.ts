@@ -1,7 +1,14 @@
 // tests/unit/scorer.test.ts
 import { test, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { scoreBug, getImpactWeight, getPageImportance } from '../../src/scoring/scorer.js';
+import { normalizeMessage } from '../../src/dedupe/fingerprint.js';
 import type { BugInstance } from '../../src/types.js';
+
+function testFingerprint(bug: BugInstance): string {
+  const normalized = normalizeMessage(bug.message, bug.ruleId);
+  return createHash('sha1').update(`${bug.ruleId}|${normalized}|${bug.url}`).digest('hex');
+}
 
 const revenueBug: BugInstance = {
   ruleId: 'revenue:no-atc',
@@ -23,13 +30,13 @@ const blogUiBug: BugInstance = {
   timestamp: new Date().toISOString(),
 };
 
-test('revenue bug on PDP scores 7 (known fingerprint, no consensus, full confidence)', () => {
+test('revenue bug on PDP scores 7 (known fingerprint in history, no consensus, full confidence)', () => {
   const score = scoreBug(revenueBug, {
-    knownFingerprints: new Set(['anything']),
+    knownFingerprints: new Set([testFingerprint(revenueBug)]), // actual fingerprint in history
     confidence: 1.0,
     consensusCount: 1,
   });
-  // impact(4) + page(3) + novelty(0) - penalty(0) = 7
+  // impact(4) + page(3) + novelty(0, fingerprint is known) - penalty(0) = 7
   expect(score).toBeCloseTo(7, 1);
 });
 
@@ -40,6 +47,16 @@ test('novelty bonus adds 1 when fingerprint is new', () => {
     consensusCount: 1,
   });
   expect(withNovelty).toBeCloseTo(8, 1);
+});
+
+test('novelty bonus fires when fingerprint absent from non-empty history set', () => {
+  const score = scoreBug(revenueBug, {
+    knownFingerprints: new Set(['some-other-sha1-abc123', 'another-fingerprint-xyz789']),
+    confidence: 1.0,
+    consensusCount: 1,
+  });
+  // impact(4) + page(3) + novelty(1, this fingerprint is not in set) - penalty(0) = 8
+  expect(score).toBeCloseTo(8, 1);
 });
 
 test('consensus multiplier raises score by 1.5x', () => {

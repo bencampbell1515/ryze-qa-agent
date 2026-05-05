@@ -45,7 +45,7 @@ function getBugFingerprint(bug: BugInstance): string {
 export function scoreBug(bug: BugInstance, ctx: ScoreContext): number {
   const impactWeight = getImpactWeight(bug.bugClass);
   const pageImportance = getPageImportance(bug.url);
-  const noveltyBonus = ctx.knownFingerprints.size === 0 ? 1 : 0;
+  const noveltyBonus = !ctx.knownFingerprints.has(getBugFingerprint(bug)) ? 1 : 0;
   const confidencePenalty = 1 - ctx.confidence;
 
   const base = impactWeight + pageImportance + noveltyBonus;
