@@ -8,7 +8,7 @@ import { attachConsoleListeners } from './checks/console.js';
 import { attachNetworkListeners } from './checks/network.js';
 import { takeScreenshot, triggerLazyLoad } from './checks/visual.js';
 import { runSeoCheck } from './checks/seo.js';
-import { runRevenueCheck } from './checks/revenue.js';
+import { runRevenueCheck, resetAtcCount } from './checks/revenue.js';
 import { runContentCheck } from './checks/content.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
@@ -48,9 +48,21 @@ test('@crawl — discover URLs from sitemaps', async ({ page }) => {
 
 test('@audit — run full audit across all URLs', async ({ page, bugs }, testInfo) => {
   test.setTimeout(0); // audit crawls 200+ URLs — no wall-clock limit
+
+  // ACCUM-003: The 'lighthouse' project runs Lighthouse perf scores, not the general
+  // URL audit. Running the audit under 'lighthouse' would label all bugs as 'desktop'
+  // (viewportFromProject falls through), doubling desktop instanceCount in the report.
+  if (testInfo.project.name === 'lighthouse') {
+    return;
+  }
+
   if (!existsSync(URL_LIST_PATH)) {
     throw new Error('Run npm run test:crawl first to generate url-list.json');
   }
+
+  // ATC-001: Reset the ATC sample counter for each test run (each Playwright project
+  // gets its own counter reset, so desktop/tablet/mobile each get up to ATC_SAMPLE_LIMIT flows).
+  resetAtcCount();
 
   const urlList: UrlList = JSON.parse(readFileSync(URL_LIST_PATH, 'utf8'));
   const viewport = viewportFromProject(testInfo.project.name);

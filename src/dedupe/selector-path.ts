@@ -24,7 +24,7 @@ export function getSectionAnchor(selector: string): string {
     const cls = Array.from(node.classList).find((c) =>
       /^(section|sec)-/.test(c),
     );
-    if (cls) return `${node.tagName.toLowerCase()}[class^=${cls}]`;
+    if (cls) return `${node.tagName.toLowerCase()}.${cls}`;
 
     node = node.parentElement;
   }

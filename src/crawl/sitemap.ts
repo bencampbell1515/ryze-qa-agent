@@ -1,6 +1,8 @@
 import { XMLParser } from 'fast-xml-parser';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const robotsParser = require('robots-parser') as (url: string, txt: string) => { isAllowed(url: string, ua?: string): boolean | undefined };
 import type { UrlList } from '../types.js';
 
 const execFileAsync = promisify(execFile);
@@ -48,7 +50,7 @@ function categorize(url: string): keyof UrlList | null {
   if (pathname.startsWith('/products/')) return 'product';
   if (pathname.startsWith('/collections/')) return 'collection';
   if (pathname.startsWith('/pages/')) return 'page';
-  if (pathname.startsWith('/blogs/') && pathname.split('/').length >= 4) return 'blog';
+  if (pathname.startsWith('/blogs/') && pathname.split('/').filter(Boolean).length >= 3) return 'blog';
   if (pathname === '/cart') return 'cart';
   if (pathname.startsWith('/policies/')) return 'policy';
   return null;
@@ -71,7 +73,7 @@ async function curlFetch(url: string): Promise<string> {
 
 /**
  * Fetch sitemaps for both RYZE sites, categorize URLs, and return the UrlList.
- * Caller is responsible for robots.txt filtering (use robots-parser).
+ * Applies robots.txt filtering for RyzeQABot/0.1 before adding any URL.
  */
 export async function discoverUrls(): Promise<UrlList> {
   const result: UrlList = {
@@ -83,6 +85,21 @@ export async function discoverUrls(): Promise<UrlList> {
     cart: [],
     policy: [],
   };
+
+  // Build robots.txt map for each unique host in SITEMAP_URLS
+  type RobotsInstance = ReturnType<typeof robotsParser>;
+  const robotsMap = new Map<string, RobotsInstance>();
+  for (const sitemapUrl of SITEMAP_URLS) {
+    const { hostname, origin } = new URL(sitemapUrl);
+    if (robotsMap.has(hostname)) continue;
+    const robotsTxtUrl = `${origin}/robots.txt`;
+    try {
+      const txt = await curlFetch(robotsTxtUrl);
+      robotsMap.set(hostname, robotsParser(robotsTxtUrl, txt));
+    } catch (err) {
+      console.warn(`robots.txt fetch failed for ${hostname}: ${(err as Error).message}`);
+    }
+  }
 
   const queue: string[] = [...SITEMAP_URLS];
   const visited = new Set<string>();
@@ -100,25 +117,44 @@ export async function discoverUrls(): Promise<UrlList> {
       console.warn(`Sitemap fetch failed: ${url} → ${(err as Error).message}`);
       continue;
     }
-    const locs = parseLocUrls(xml);
+
+    let locs: string[];
+    try {
+      locs = parseLocUrls(xml);
+    } catch (err) {
+      console.warn(`Failed to parse sitemap XML from ${url}: ${(err as Error).message}`);
+      continue;
+    }
 
     for (const loc of locs) {
-      // If it's a sitemap index entry, add to queue
-      if (loc.endsWith('.xml') || loc.includes('sitemap')) {
+      // Guard against relative/empty <loc> values
+      if (!URL.canParse(loc)) continue;
+
+      // If it's a sub-sitemap (pathname ends with .xml), add to queue
+      if (new URL(loc).pathname.endsWith('.xml')) {
         queue.push(loc);
         continue;
       }
+
       const category = categorize(loc);
       if (!category) continue;
 
+      // robots.txt filtering
+      const robotsForHost = robotsMap.get(new URL(loc).hostname);
+      if (robotsForHost && !robotsForHost.isAllowed(loc, 'RyzeQABot/0.1')) continue;
+
+      // Blog sample cap: check before adding, increment only when actually adding
       if (category === 'blog') {
         const host = new URL(loc).hostname;
-        blogCounts[host] = (blogCounts[host] ?? 0) + 1;
-        if (blogCounts[host] > BLOG_SAMPLE_LIMIT) continue;
+        if ((blogCounts[host] ?? 0) >= BLOG_SAMPLE_LIMIT) continue;
       }
 
       if (!result[category].includes(loc)) {
         result[category].push(loc);
+        if (category === 'blog') {
+          const host = new URL(loc).hostname;
+          blogCounts[host] = (blogCounts[host] ?? 0) + 1;
+        }
       }
     }
   }

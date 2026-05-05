@@ -34,6 +34,10 @@ export interface BugInstance {
   /** Raw axe violation nodes for a11y bugs */
   axeNodes?: string[];
   timestamp: string;
+  /** Perceptual dHash binary string (64 chars of '0'/'1') from sharp-phash */
+  dHash?: string;
+  /** Shopify section anchor for dedup grouping, e.g. div[data-section-type=hero] */
+  sectionAnchor?: string;
 }
 
 export interface BugRecord {

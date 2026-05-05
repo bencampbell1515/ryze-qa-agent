@@ -8,9 +8,16 @@ const NOISE_HOSTS = [
   'googletagmanager.com', 'google-analytics.com', 'doubleclick.net',
   'snapchat.com', 'trkn.us', 'shoplift.ai', 't.vibe.co',
   'monorail-edge.shopifysvc.com',
+  'applovin.com', 'sentry.io', 'postscript.io', 'clarity.ms',
+  'mountain.com', 'launchdarkly.com', 'segment.com', 'amplitude.com',
+  'intercom.io', 'hotjar.com', 'zendesk.com',
+  'otlp-http-production.shopifysvc.com',
+  'id.ryzesuperfoods.com',
+  'api.rechargeapps.com',
+  'myshopify.com',
 ];
 
-const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/'];
+const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/', '/em-prerender'];
 
 function isNoise(url: string): boolean {
   try {

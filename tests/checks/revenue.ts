@@ -15,6 +15,11 @@ const ATC_SELECTORS = /add to cart|subscribe|buy now/i;
 let atcCheckCount = 0;
 const ATC_SAMPLE_LIMIT = 5;
 
+/** Reset the ATC sample counter — call once at the start of each @audit test run. */
+export function resetAtcCount(): void {
+  atcCheckCount = 0;
+}
+
 export async function runRevenueCheck(
   page: Page,
   bugs: BugCollector,
@@ -36,7 +41,7 @@ export async function runRevenueCheck(
 
     // Check Add-to-Cart button presence — wait up to 5s for JS to render it
     const atc = page.getByRole('button', { name: ATC_SELECTORS }).first();
-    await atc.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    await atc.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     const atcVisible = await atc.isVisible().catch(() => false);
     if (!atcVisible) {
       bugs.add({ ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
@@ -44,18 +49,30 @@ export async function runRevenueCheck(
       return;
     }
 
+    // Capture the product page URL before any navigation (ATC-003)
+    const productPageUrl = page.url();
+
     // Only do full ATC→cart flow on a sample to keep audit fast
     if (atcCheckCount < ATC_SAMPLE_LIMIT) {
-      atcCheckCount++;
+      let aborted = false; // ATC-002: flag to prevent ghost writes after timeout
+
       const atcFlow = async (): Promise<void> => {
         await atc.click();
+        atcCheckCount++; // ATC-005: increment AFTER click succeeds, not before
         await page.waitForTimeout(2000);
-        const cartUrl = new URL('/cart', page.url()).toString();
+        // ATC-003: use productPageUrl captured before click to build cart URL
+        const cartUrl = new URL('/cart', productPageUrl).toString();
         await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
-        await runCartChecks(page, bugs, viewport, url);
+        if (aborted) return; // ATC-002: bail if timeout already fired
+        await runCartChecks(page, bugs, viewport, productPageUrl);
+        // CONC-003: navigate back so subsequent checks run against product page, not /cart
+        await page.goto(productPageUrl, { waitUntil: 'load', timeout: 30_000 });
       };
       const timeout = new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('ATC flow timed out after 35s')), 35_000));
+        setTimeout(() => {
+          aborted = true; // ATC-002: signal the in-flight flow to stop writing bugs
+          reject(new Error('ATC flow timed out after 35s'));
+        }, 35_000));
       await Promise.race([atcFlow(), timeout]).catch(() => {
         // ATC flow failed or timed out — button exists, that's the key signal
       });
@@ -81,7 +98,12 @@ async function runCartChecks(
         message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport });
     }
 
-    const checkoutBtn = page.locator('button[name="checkout"], a[href*="checkout"]').first();
+    // ATC-006: prefer the submit button; fall back to anchor only if button absent
+    // (isEnabled() on <a> always returns true, masking a disabled button)
+    const checkoutButton = page.locator('button[name="checkout"]').first();
+    const checkoutAnchor = page.locator('a[href*="checkout"]').first();
+    const btnVisible = await checkoutButton.isVisible().catch(() => false);
+    const checkoutBtn = btnVisible ? checkoutButton : checkoutAnchor;
     const checkoutEnabled = await checkoutBtn.isEnabled().catch(() => false);
     if (!checkoutEnabled) {
       bugs.add({ ruleId: 'revenue:checkout-disabled', severity: 'critical', bugClass: 'revenue',

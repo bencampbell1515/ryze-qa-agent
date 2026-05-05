@@ -7,7 +7,8 @@
     "test:crawl": "tsx scripts/crawl.ts",
     "test:audit": "playwright test tests/crawl.spec.ts --grep @audit",
     "report": "tsx scripts/report.ts",
-    "full-audit": "npm run test:crawl && npm run test:audit && npm run report",
+    "clean": "rm -f data/bugs.jsonl data/tmp/*.txt",
+    "full-audit": "npm run clean && npm run test:crawl && npm run test:audit && npm run report",
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
