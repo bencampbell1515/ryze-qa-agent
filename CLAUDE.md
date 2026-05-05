@@ -11,10 +11,11 @@ Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesu
 
 ```bash
 npm install               # install deps (Node 20+, uses system Chrome — no browser download)
+npm run clean             # clear data/bugs.jsonl and data/tmp before a fresh run
 npm run test:crawl        # discover URLs → output/url-list.json
 npm run test:audit        # run all checks → output/bugs.jsonl
 npm run report            # dedupe + build .docx
-npm run full-audit        # crawl + audit + report in sequence
+npm run full-audit        # clean + crawl + audit + report in sequence
 ```
 
 ---
@@ -101,14 +102,10 @@ Key directories:
 - DOM price selectors (`[data-product-price]`, `.price__current`) are assumptions — verify against live DOM on first run
 - **System sleep during long audits** — `caffeinate -dims` may be overridden by MDM. Workaround: keystroke jiggler (`osascript -e 'key code 63'` every 50s) resets MDM idle timer regardless of policy.
 - **`network:failed` ≠ missing resource** — `network:failed` means CDN/bot-detection dropped the connection; `network:404` means the server confirmed the resource doesn't exist. Only `network:404` is actionable.
-- **Shopify analytics URL is unique per page load** — `/t?event=<base64-uuid>` embeds a unique event ID; without filtering, each page load creates a distinct fingerprint and inflates the bug count by hundreds.
 - **`js:pageerror` in headless is always noise** — Popper.js, analytics scripts, and jQuery (loaded via blocked GTM) all throw in bot context; never surfaces real user-facing breakage. Remove from report entirely.
 - **Hidden modals render their broken images at 0×0** — a 404 inside a `display:none` modal has no visual impact; DevTools "scroll into view" does nothing because the element has no size. Use Playwright to force-open the modal and inspect.
-- **`robots.txt` compliance is unimplemented** — `robots-parser` is installed but never imported or called anywhere. Every URL from the sitemap is visited unconditionally. The JSDoc on `discoverUrls()` says "Caller is responsible" but no caller implements it.
-- **`lighthouse` Playwright project runs the full `@audit` test as `'desktop'` viewport** — `viewportFromProject()` falls through to `return 'desktop'` for the name `'lighthouse'`. All lighthouse-project bug instances are labeled desktop, doubling all desktop `instanceCount` values in the report. Confirmed live: 10,713 desktop vs 16 tablet instances (expected ~2-3×, not 669×).
-- **`loc.includes('sitemap')` in sitemap discovery drops content URLs** — any blog article or product whose URL slug contains the word "sitemap" is mis-routed as a sub-sitemap fetch, fails to parse as XML, and disappears from the audit entirely. The check should be `loc.endsWith('.xml')` only, anchored to the pathname.
-- **`/full-audit` slash command uses `pnpm`, not `npm`** — `.claude/commands/full-audit.md` has `pnpm test:crawl` etc., but the project uses npm (`package-lock.json`, no `pnpm-lock.yaml`). Run `npm run full-audit` instead.
-- **`totalPages` in the report undercounts by ~42%** — computed as `new Set(instances.map(i => i.url)).size` on the noise-filtered bug set. Pages with zero actionable bugs are invisible. Live: 132 reported vs 229 actual crawled URLs. Should read from `output/url-list.json` instead.
+- **Multi-run warning fires on long single runs** — `scripts/report.ts` warns when `bugs.jsonl` timestamps span >2h. A normal 3-viewport audit takes 3–5 hours, so this warning will fire even on a clean single run. Safe to ignore after `npm run clean`; only meaningful if you forgot to clean between runs.
+- **Perceptual hash (dHash) pipeline is wired but dormant** — `BugInstance` has `dHash?`, `deduplicateBugs()` runs a fuzzy second pass via `shouldMerge()`, but no check module currently calls `computeHash()` to populate `dHash`. The fuzzy merge will have no effect until `visual.ts` or `a11y.ts` starts populating it.
 
 ---
 

@@ -1,79 +1,170 @@
 import {
-  Document, Packer, Paragraph, ImageRun, HeadingLevel,
-  Table, TableRow, TableCell, TextRun, AlignmentType,
-  PageBreak, WidthType,
+  Document, Packer, Paragraph, HeadingLevel,
+  TextRun, AlignmentType, WidthType, ImageRun,
+  Table, TableRow, TableCell, ShadingType, BorderStyle,
 } from 'docx';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import sharp from 'sharp';
 import type { BugRecord, Severity } from '../types.js';
+
+const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
+// Max display width in pixels at 96 DPI within 6.5in page (minus 0.5in indent)
+const SCREENSHOT_DISPLAY_WIDTH = 560;
+const SCREENSHOT_MAX_HEIGHT = 380;
+
+function urlToSlug(url: string): string {
+  return url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
+}
+
+function findScreenshotPath(urls: string[]): string | null {
+  for (const url of urls.slice(0, 3)) {
+    for (const vp of ['desktop', 'tablet', 'mobile']) {
+      const p = join(SCREENSHOTS_DIR, `${urlToSlug(url)}-${vp}.png`);
+      if (existsSync(p)) return p;
+    }
+  }
+  return null;
+}
+
+async function loadScreenshot(path: string): Promise<{ data: Buffer; width: number; height: number } | null> {
+  try {
+    const resized = await sharp(path)
+      .resize({ width: SCREENSHOT_DISPLAY_WIDTH, height: SCREENSHOT_MAX_HEIGHT, fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    const meta = await sharp(resized).metadata();
+    return { data: resized, width: meta.width ?? SCREENSHOT_DISPLAY_WIDTH, height: meta.height ?? SCREENSHOT_MAX_HEIGHT };
+  } catch {
+    return null;
+  }
+}
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   critical: 0, high: 1, medium: 2, low: 3,
 };
 
-function severityColor(s: Severity): string {
-  const colors: Record<Severity, string> = {
-    critical: 'FF0000', high: 'FF6600', medium: 'FFAA00', low: '888888',
-  };
-  return colors[s];
+const SEVERITY_COLOR: Record<Severity, string> = {
+  critical: 'CC0000', high: 'E65C00', medium: 'CC8800', low: '666666',
+};
+
+// Page width minus margins in twips (8.5in - 2in margins = 6.5in * 1440)
+const PAGE_WIDTH = 9360;
+
+function rule(color = 'CCCCCC'): Paragraph {
+  return new Paragraph({
+    border: { bottom: { color, size: 6, space: 1, style: BorderStyle.SINGLE } },
+    spacing: { after: 80 },
+    children: [],
+  });
 }
 
-function bugSection(bug: BugRecord): Paragraph[] {
-  const paragraphs: Paragraph[] = [
-    new Paragraph({
-      heading: HeadingLevel.HEADING_2,
-      children: [
-        new TextRun({
-          text: `[${bug.severity.toUpperCase()}] ${bug.title}`,
-          color: severityColor(bug.severity),
-          bold: true,
-        }),
-      ],
-    }),
-    new Paragraph(
-      `Bug ID: ${bug.fingerprint.slice(0, 8)} · ${bug.bugClass} · ` +
-      `Affects ${bug.urls.length} URL(s) · Viewports: ${bug.viewports.join(', ')}`,
-    ),
-    new Paragraph(bug.description),
+function summaryTable(
+  counts: Record<Severity, number>,
+  totalPages: number,
+  crawlDate: string,
+  sites: string[],
+): Table {
+  const rows: [string, string][] = [
+    ['Sites audited', sites.join(', ')],
+    ['Crawl date', crawlDate],
+    ['Pages crawled', String(totalPages)],
+    ['Critical', String(counts.critical)],
+    ['High', String(counts.high)],
+    ['Medium', String(counts.medium)],
+    ['Low', String(counts.low)],
   ];
 
-  if (bug.elementShot && existsSync(bug.elementShot)) {
-    paragraphs.push(
-      new Paragraph({
+  const labelW = 2000;
+  const valueW = PAGE_WIDTH - labelW;
+
+  return new Table({
+    width: { size: PAGE_WIDTH, type: WidthType.DXA },
+    columnWidths: [labelW, valueW],
+    rows: rows.map(([label, value], i) =>
+      new TableRow({
         children: [
-          new ImageRun({
-            data: readFileSync(bug.elementShot),
-            transformation: { width: 400, height: 250 },
-            type: 'png',
+          new TableCell({
+            width: { size: labelW, type: WidthType.DXA },
+            shading: { type: ShadingType.SOLID, color: 'F0F0F0', fill: 'F0F0F0' },
+            children: [new Paragraph({
+              children: [new TextRun({ text: label, bold: true, size: 20 })],
+            })],
+          }),
+          new TableCell({
+            width: { size: valueW, type: WidthType.DXA },
+            children: [new Paragraph({
+              children: [new TextRun({ text: value, size: 20 })],
+            })],
           }),
         ],
       }),
-    );
-  }
+    ),
+  });
+}
 
-  if (bug.annotatedPageShot && existsSync(bug.annotatedPageShot)) {
-    paragraphs.push(
+async function bugEntry(bug: BugRecord, index: number): Promise<Paragraph[]> {
+  const sev = bug.severity.toUpperCase();
+  const color = SEVERITY_COLOR[bug.severity];
+  const urlCount = bug.urls.length;
+  const displayUrls = bug.urls.slice(0, 5);
+
+  const paras: Paragraph[] = [
+    // Header line: number + severity + rule + page count
+    new Paragraph({
+      spacing: { before: 160, after: 40 },
+      children: [
+        new TextRun({ text: `${index}. `, bold: true, size: 20 }),
+        new TextRun({ text: `[${sev}]`, bold: true, color, size: 20 }),
+        new TextRun({ text: `  ${bug.ruleId}`, bold: true, size: 20 }),
+        new TextRun({ text: `  —  ${urlCount} page${urlCount !== 1 ? 's' : ''} affected`, size: 20, color: '666666' }),
+      ],
+    }),
+    // Description
+    new Paragraph({
+      spacing: { before: 0, after: 40 },
+      indent: { left: 360 },
+      children: [new TextRun({ text: bug.description.slice(0, 200), size: 18, italics: true })],
+    }),
+    // URLs
+    ...displayUrls.map((url) =>
       new Paragraph({
-        children: [
-          new ImageRun({
-            data: readFileSync(bug.annotatedPageShot),
-            transformation: { width: 600, height: 400 },
-            type: 'png',
-          }),
-        ],
+        spacing: { before: 0, after: 20 },
+        indent: { left: 360 },
+        children: [new TextRun({ text: `• ${url}`, size: 18, color: '0070C0' })],
       }),
-    );
+    ),
+    ...(urlCount > 5
+      ? [new Paragraph({
+          indent: { left: 360 },
+          spacing: { before: 0, after: 40 },
+          children: [new TextRun({ text: `  …and ${urlCount - 5} more`, size: 18, color: '999999' })],
+        })]
+      : []),
+  ];
+
+  // Embed a representative page screenshot if one exists from the last audit run
+  const screenshotPath = findScreenshotPath(bug.urls);
+  if (screenshotPath) {
+    const img = await loadScreenshot(screenshotPath);
+    if (img) {
+      paras.push(
+        new Paragraph({
+          spacing: { before: 40, after: 80 },
+          indent: { left: 360 },
+          children: [
+            new ImageRun({
+              type: 'png',
+              data: img.data,
+              transformation: { width: img.width, height: img.height },
+            }),
+          ],
+        }),
+      );
+    }
   }
 
-  for (const url of bug.urls) {
-    paragraphs.push(new Paragraph({ text: `• ${url}`, bullet: { level: 0 } }));
-  }
-
-  if (bug.helpUrl) {
-    paragraphs.push(new Paragraph(`Fix guidance: ${bug.helpUrl}`));
-  }
-
-  paragraphs.push(new Paragraph({ children: [new PageBreak()] }));
-  return paragraphs;
+  return paras;
 }
 
 export async function buildDocx(
@@ -87,56 +178,56 @@ export async function buildDocx(
   const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
   for (const b of bugs) counts[b.severity]++;
 
-  const revenueBugs = sorted.filter((b) => b.ruleId.startsWith('revenue:'));
+  const children: (Paragraph | Table)[] = [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 200 },
+      children: [new TextRun({ text: 'Ryze QA Audit Report', bold: true, size: 52, color: '1a3a6b' })],
+    }),
 
-  const summaryTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        children: ['Severity', 'Count'].map(
-          (t) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true })] })] }),
-        ),
+    summaryTable(counts, meta.totalPages, meta.crawlDate, meta.sites),
+
+    new Paragraph({ spacing: { before: 400 }, children: [] }),
+  ];
+
+  let globalIndex = 1;
+
+  for (const sev of ['critical', 'high', 'medium', 'low'] as Severity[]) {
+    const group = sorted.filter((b) => b.severity === sev);
+    if (group.length === 0) continue;
+
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 320, after: 120 },
+        children: [
+          new TextRun({
+            text: `${sev.charAt(0).toUpperCase() + sev.slice(1)} (${group.length})`,
+            bold: true,
+            color: SEVERITY_COLOR[sev],
+            size: 32,
+          }),
+        ],
       }),
-      ...(['critical', 'high', 'medium', 'low'] as Severity[]).map(
-        (s) => new TableRow({
-          children: [s, String(counts[s])].map(
-            (t) => new TableCell({ children: [new Paragraph(t)] }),
-          ),
-        }),
-      ),
-    ],
-  });
+      rule(SEVERITY_COLOR[sev]),
+    );
+
+    for (const bug of group) {
+      children.push(...await bugEntry(bug, globalIndex++));
+    }
+
+    children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
+  }
 
   const doc = new Document({
-    sections: [
-      {
-        children: [
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Ryze QA Audit Report' }),
-          new Paragraph(`Sites: ${meta.sites.join(', ')}`),
-          new Paragraph(`Crawl date: ${meta.crawlDate}`),
-          new Paragraph(`Total pages crawled: ${meta.totalPages}`),
-          new Paragraph(`Total unique bugs: ${bugs.length}`),
-          new Paragraph({ children: [new PageBreak()] }),
-
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Severity Summary' }),
-          summaryTable,
-          new Paragraph({ children: [new PageBreak()] }),
-
-          ...(revenueBugs.length > 0
-            ? [
-                new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Revenue-Impact Bugs' }),
-                ...revenueBugs.flatMap(bugSection),
-              ]
-            : []),
-
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'All Bugs' }),
-          ...sorted.flatMap(bugSection),
-
-          new Paragraph({ heading: HeadingLevel.HEADING_1, text: 'Appendix — Raw Data' }),
-          new Paragraph(JSON.stringify(bugs, null, 2)),
-        ],
+    sections: [{
+      properties: {
+        page: {
+          margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
+        },
       },
-    ],
+      children,
+    }],
   });
 
   return Packer.toBuffer(doc);

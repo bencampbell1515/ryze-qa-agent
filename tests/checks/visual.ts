@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
-import { expect } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Viewport } from '../../src/types.js';
 
 const VOLATILE_SELECTORS = [
@@ -10,19 +11,14 @@ const VOLATILE_SELECTORS = [
   '.social-proof',
 ];
 
-/**
- * Trigger Shopify lazy-load by scrolling to bottom and back.
- */
+const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
+
 export async function triggerLazyLoad(page: Page): Promise<void> {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(800);
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
-/**
- * Take a full-page screenshot with volatile regions masked.
- * On first run, creates the baseline. On subsequent runs, diffs against it.
- */
 export async function takeScreenshot(
   page: Page,
   snapshotName: string,
@@ -31,9 +27,12 @@ export async function takeScreenshot(
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await triggerLazyLoad(page);
 
+  mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+
   const maskLocators = VOLATILE_SELECTORS.map((sel) => page.locator(sel));
 
-  await expect(page).toHaveScreenshot(`${snapshotName}-${viewport}.png`, {
+  await page.screenshot({
+    path: join(SCREENSHOTS_DIR, `${snapshotName}-${viewport}.png`),
     fullPage: true,
     mask: maskLocators,
     maskColor: '#FF00FF',
