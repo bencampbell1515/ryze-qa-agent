@@ -10,8 +10,10 @@ const execFileAsync = promisify(execFile);
 
 const SITEMAP_URLS = [
   'https://www.ryzesuperfoods.com/sitemap.xml',
-  'https://shop.ryzesuperfoods.com/sitemap.xml',
 ];
+
+const SHOP_ROUTES_URL = 'https://shop.ryzesuperfoods.com/debug/routes';
+const SHOP_BASE = 'https://shop.ryzesuperfoods.com';
 
 const BLOG_SAMPLE_LIMIT = 20;
 
@@ -42,6 +44,52 @@ function parseLocUrls(xml: string): string[] {
     for (const u of entries) urls.push(u.loc);
   }
   return urls;
+}
+
+interface ShopRoute {
+  pattern: string;
+  destination: string;
+  enabled: boolean;
+}
+
+/** Fetch shop.ryzesuperfoods.com live routes and return unique internal destination URLs. */
+async function discoverShopRoutes(): Promise<Partial<UrlList>> {
+  const result: Partial<UrlList> = {
+    product: [], page: [], cart: [], blog: [],
+  };
+
+  let json: { routes: ShopRoute[] };
+  try {
+    const body = await curlFetch(SHOP_ROUTES_URL);
+    json = JSON.parse(body) as { routes: ShopRoute[] };
+  } catch (err) {
+    console.warn(`shop routes fetch failed: ${(err as Error).message}`);
+    return result;
+  }
+
+  const seen = new Set<string>();
+  for (const route of json.routes) {
+    if (!route.enabled) continue;
+    // Skip external destinations
+    if (route.destination.startsWith('http')) continue;
+    if (seen.has(route.destination)) continue;
+    seen.add(route.destination);
+
+    const fullUrl = `${SHOP_BASE}${route.destination}`;
+    const path = route.destination;
+
+    if (path.startsWith('/offers/') || path.startsWith('/sp/')) {
+      result.product!.push(fullUrl);
+    } else if (path.startsWith('/cart/')) {
+      result.cart!.push(fullUrl);
+    } else if (path.startsWith('/listicles/')) {
+      result.blog!.push(fullUrl);
+    } else {
+      result.page!.push(fullUrl);
+    }
+  }
+
+  return result;
 }
 
 /** Categorize a URL into one of the UrlList keys. */
@@ -86,6 +134,16 @@ export async function discoverUrls(): Promise<UrlList> {
     cart: [],
     policy: [],
   };
+
+  // Fetch shop.ryzesuperfoods.com routes from the live debug endpoint
+  console.log('Fetching shop.ryzesuperfoods.com routes...');
+  const shopUrls = await discoverShopRoutes();
+  for (const [cat, urls] of Object.entries(shopUrls) as [keyof UrlList, string[]][]) {
+    for (const url of urls) {
+      if (!result[cat].includes(url)) result[cat].push(url);
+    }
+  }
+  console.log(`  shop routes: ${Object.values(shopUrls).flat().length} URLs`);
 
   // Build robots.txt map for each unique host in SITEMAP_URLS
   type RobotsInstance = ReturnType<typeof robotsParser>;
