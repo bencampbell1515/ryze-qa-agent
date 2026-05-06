@@ -50,7 +50,8 @@ export async function runContentCheck(
   const tmpFile = join(TMP_DIR, `ryze-content-${viewport}-${randomUUID()}.txt`);
 
   try {
-    writeFileSync(tmpFile, text);
+    const sanitized = text.replace(/­/g, ''); // strip soft hyphens — splits words in cspell
+    writeFileSync(tmpFile, sanitized);
 
     let stdout = '';
     try {
