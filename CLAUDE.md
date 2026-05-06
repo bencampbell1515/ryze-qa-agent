@@ -61,7 +61,7 @@ Key directories:
 
 ## Tech stack (don't substitute without asking)
 
-`@playwright/test` · `@axe-core/playwright` · `linkinator` · `sharp` · `sharp-phash` · `cspell` · `docx` · `playwright-lighthouse` · `fast-xml-parser` · `robots-parser` · `p-limit`
+`@playwright/test` · `@axe-core/playwright` · `linkinator` · `sharp` · `sharp-phash` · `cspell` · `docx` · `playwright-lighthouse` · `fast-xml-parser` · `robots-parser` · `p-limit` · `dotenv`
 
 ---
 
@@ -99,6 +99,10 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`js:pageerror` in headless is always noise** — Popper.js, analytics scripts, and jQuery (loaded via blocked GTM) all throw in bot context; never surfaces real user-facing breakage.
 - **Hidden modals render their broken images at 0×0** — a 404 inside a `display:none` modal has no visual impact. Use Playwright to force-open the modal and inspect.
 - **Perceptual hash (dHash) pipeline is wired but dormant** — `BugInstance` has `dHash?`, `deduplicateBugs()` runs a fuzzy second pass via `shouldMerge()`, but no check module currently calls `computeHash()` to populate `dHash`. The fuzzy merge will have no effect until `visual.ts` or `a11y.ts` starts populating it.
+- **Okendo review widget excluded from axe (AXE-001, FIXED)** — `EXCLUDED_SELECTORS` in `tests/checks/a11y.ts` now includes `[data-okendo-initialized]`, `[class*="okeReviews"]`, and the third Okendo selector. False WCAG violations from the review widget are no longer reported.
+- **No Spanish dictionary in cspell (SPELL-002, FIXED)** — `@cspell/dict-es-es` is now installed and loaded via `import` in `cspell.json`. Spanish-language content blocks and testimonials no longer generate false `content:typo` findings.
+- **`validated: true` default when `ANTHROPIC_API_KEY` is absent (VALID-001, FIXED)** — The fallback in `orchestrate.ts` is now `?? false`, and a `[WARN]` message fires at startup when the key is absent. Bugs are no longer falsely marked as AI-validated when validation never ran. API key goes in `.env` at project root (dotenv is installed and wired into all LLM scripts).
+- **`axe:moderate` violations map to medium severity (AXE-002, NOT A BUG)** — `moderate` impact falls through the `else` branch in `runA11yCheck` and is correctly mapped to `'medium'` severity. No `severityMap` entry is needed; the existing logic handles it. No fix required.
 
 ---
 
