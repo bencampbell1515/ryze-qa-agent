@@ -1,6 +1,7 @@
 {
   "version": "0.2",
-  "language": "en",
+  "language": "en,es",
+  "import": ["@cspell/dict-es-es/cspell-ext.json"],
   "dictionaryDefinitions": [
     {
       "name": "ryze-brand",
@@ -8,7 +9,7 @@
       "addWords": true
     }
   ],
-  "dictionaries": ["en_US", "ryze-brand"],
+  "dictionaries": ["en_US", "es-es", "ryze-brand"],
   "minWordLength": 5,
   "ignoreRegExpList": [
     "\\b[A-Z][a-z]+ [A-Z]\\.",
