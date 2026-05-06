@@ -9,6 +9,9 @@ const EXCLUDED_SELECTORS = [
   '#gorgias-chat-container',
   '#fb-root',
   '[id*="tiktok"]',
+  '[data-okendo-initialized]',
+  '[class*="okeReviews"]',
+  '#okendo-reviews-widget',
 ];
 
 export async function runA11yCheck(
