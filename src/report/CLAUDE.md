@@ -1,14 +1,16 @@
 # Report
 
-Reads `data/bugs.jsonl`, deduplicates, and writes `output/audit-report-<date>.docx`.
+Reads `data/bugs.jsonl`, deduplicates, and writes `output/audit-report-<date>.html` + `output/audit-report-<date>.pdf`.
 
 ## Key files
 
 | File | Purpose |
 |------|---------|
-| docx-builder.ts | Builds Word document from deduped bug list |
+| ~~docx-builder.ts~~ | **Retired** — previously built Word document; replaced by html-builder + pdf-exporter |
+| html-builder.ts | Builds HTML report from deduped bug list |
+| pdf-exporter.ts | Exports HTML report to PDF via headless Chrome |
 | gdocs-uploader.ts | Optional: uploads to Google Drive |
-| ../../scripts/report.ts | Entry point — noise filter → dedup → docx-builder |
+| ../../scripts/report.ts | Entry point — noise filter → dedup → html-builder → pdf-exporter |
 
 ## Patterns
 
@@ -18,7 +20,7 @@ Reads `data/bugs.jsonl`, deduplicates, and writes `output/audit-report-<date>.do
 - Dedup fingerprint: `SHA1(ruleId + normalizedMessage + sectionAnchor + dHash)` — see `src/dedupe/fingerprint.ts`; `dHash` is the full 64-char binary string from `sharp-phash`, not a hex slice
 - `normalizeMessage()` strips: axe element-specific details (everything after `— Fix any/all/one of the following:`), full HTTP URLs, floats, hex colors, dates, ID suffixes — this groups same-rule violations across all pages into one record
 - Stripping full URLs is critical for `seo:missing-meta-description` (each message embeds its page URL); for `network:404` only the scheme+host is stripped so each broken resource path remains a distinct fingerprint
-- Screenshots embedded via `ImageRun` in `docx-builder.ts` — looks up `output/screenshots/<url-slug>-<viewport>.png`; gracefully skips if file doesn't exist (populated on next `npm run test:audit`)
+- Screenshots embedded via `<img>` tags in `html-builder.ts` — looks up `output/screenshots/<url-slug>-<viewport>.png`; gracefully skips if file doesn't exist (populated on next `npm run test:audit`)
 
 ## Gotchas
 

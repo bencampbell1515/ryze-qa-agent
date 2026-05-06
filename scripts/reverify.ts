@@ -20,7 +20,7 @@ async function verifyBug(page: import('@playwright/test').Page, bug: ScoredBug):
       return response.status() === 404 ? 'confirmed' : 'could-not-reproduce';
     }
 
-    if (bug.ruleId.startsWith('a11y:') && bug.selector) {
+    if (bug.ruleId.startsWith('axe:') && bug.selector) {
       const el = page.locator(bug.selector).first();
       const visible = await el.isVisible().catch(() => false);
       return visible ? 'confirmed' : 'could-not-reproduce';

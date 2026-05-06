@@ -3,7 +3,7 @@
 Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces a `.docx` audit report.
 
 **Target sites:** https://www.ryzesuperfoods.com · https://shop.ryzesuperfoods.com
-**Output:** `output/audit-report-<date>.docx`
+**Output:** `output/audit-report-<date>.html` + `output/audit-report-<date>.pdf`
 
 ---
 
@@ -14,7 +14,7 @@ npm install               # install deps (Node 20+, uses system Chrome — no br
 npm run clean             # clear data/bugs.jsonl and data/tmp before a fresh run
 npm run test:crawl        # discover URLs → output/url-list.json
 npm run test:audit        # run all checks → output/bugs.jsonl
-npm run report            # dedupe + build .docx
+npm run report            # dedupe + build HTML + PDF report
 npm run full-audit        # clean + crawl + audit + report in sequence
 ```
 
@@ -27,7 +27,7 @@ sitemap.xml → URL list → Playwright test suite (3 viewports) → bugs.jsonl
                                                                     ↓
                                                              fingerprint dedup
                                                                     ↓
-                                                            docx report builder
+                                                            HTML + PDF report builder
 ```
 
 Key directories:
