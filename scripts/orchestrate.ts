@@ -12,6 +12,7 @@ import { buildHtml } from '../src/report/html-builder.js';
 import { exportPdf } from '../src/report/pdf-exporter.js';
 import { generateSummaries } from './summarise.js';
 import { assignCategories } from './categorise.js';
+import { semanticDedup } from './semantic-dedup.js';
 import Anthropic from '@anthropic-ai/sdk';
 
 const execFileAsync = promisify(execFile);
@@ -68,8 +69,8 @@ async function main(): Promise<void> {
     console.warn('[WARN] ANTHROPIC_API_KEY not set — LLM steps (validate, personas, summaries, categories) will be skipped. Bugs will NOT be marked as AI-validated.');
   }
 
-  // Step 1: Run validation and discovery in parallel
-  await Promise.all([runScript('validate'), runScript('discover-agentic')]);
+  // Step 1: Run validation (personas already ran in parallel with Playwright via run-audit.ts)
+  await runScript('validate');
 
   // Step 2: Load validated bugs (fall back to raw if validation failed)
   const bugsSource = existsSync(VALIDATED_PATH) ? VALIDATED_PATH : BUGS_PATH;
@@ -94,14 +95,18 @@ async function main(): Promise<void> {
     .map((l) => JSON.parse(l) as BugInstance)
     .filter((b) => !NOISE_RULE_IDS.has(b.ruleId));
 
-  // Step 3: Load and validate discovery findings
-  const discoveries: DiscoveryFinding[] = existsSync(DISCOVERIES_PATH)
+  // Step 3: Load and validate discovery findings, then semantic dedup
+  const rawDiscoveries: DiscoveryFinding[] = existsSync(DISCOVERIES_PATH)
     ? readFileSync(DISCOVERIES_PATH, 'utf8')
         .split('\n')
         .filter(Boolean)
         .map((l) => JSON.parse(l) as DiscoveryFinding)
         .filter((f) => enforceEvidence(f).valid)
     : [];
+
+  const discoveries = client && rawDiscoveries.length > 1
+    ? await semanticDedup(client, rawDiscoveries)
+    : rawDiscoveries;
 
   // Step 4: Detect consensus (same URL + ruleId from multiple sources)
   const consensusMap = new Map<string, number>();
@@ -182,11 +187,7 @@ async function main(): Promise<void> {
   writeFileSync(SCORED_PATH, JSON.stringify(scored, null, 2));
   console.log(`\n✅ Scored ${scored.length} findings. Top score: ${scored[0]?.score.toFixed(1) ?? 'N/A'}`);
 
-  // Step 7: Re-verify top 10
-  await runScript('reverify');
-
-  // Step 8: Read back (reverify mutates scored-bugs.json)
-  const finalScored: ScoredBug[] = JSON.parse(readFileSync(SCORED_PATH, 'utf8'));
+  const finalScored = scored;
 
   // Step 9: Save fingerprints to history
   saveToHistory(
