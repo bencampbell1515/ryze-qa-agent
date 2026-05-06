@@ -44,10 +44,19 @@ async function cardHtml(bug: ScoredBug): Promise<string> {
 
   const summary = escapeHtml(bug.summary ?? bug.description.slice(0, 200));
 
+  const verifyBadge = bug.verificationStatus && bug.verificationStatus !== 'unverified'
+    ? `<span class="verify-badge ${escapeHtml(bug.verificationStatus)}">${escapeHtml(
+        bug.verificationStatus === 'confirmed' ? '✓ Confirmed'
+        : bug.verificationStatus === 'could-not-reproduce' ? '✗ Could not reproduce'
+        : '? Inconclusive'
+      )}</span>`
+    : '';
+
   return `<div class="card" data-severity="${bug.severity}">
   <div class="card-header">
     <span class="badge ${bug.severity}">${escapeHtml(SEVERITY_LABEL[bug.severity].toUpperCase())}</span>
     <code class="rule-id">${escapeHtml(bug.ruleId)}</code>
+    ${verifyBadge}
   </div>
   <p class="summary">${summary}</p>
   <div class="urls">

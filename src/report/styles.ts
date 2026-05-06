@@ -34,6 +34,11 @@ header .badge { font-size: 0.82rem; padding: 0.35rem 0.85rem; }
 .badge.medium { background: var(--medium); }
 .badge.low { background: var(--low); }
 
+.verify-badge { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+.verify-badge.confirmed { background: #d1fae5; color: #065f46; }
+.verify-badge.could-not-reproduce { background: #fee2e2; color: #991b1b; }
+.verify-badge.inconclusive { background: #fef3c7; color: #92400e; }
+
 /* Tabs */
 .tabs { background: white; border-bottom: 2px solid var(--border); padding: 0 2rem; display: flex; }
 .tab {
