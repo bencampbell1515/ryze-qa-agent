@@ -1,4 +1,5 @@
 // scripts/orchestrate.ts
+import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -63,6 +64,9 @@ async function main(): Promise<void> {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const client = apiKey ? new Anthropic({ apiKey }) : null;
+  if (!client) {
+    console.warn('[WARN] ANTHROPIC_API_KEY not set — LLM steps (validate, personas, summaries, categories) will be skipped. Bugs will NOT be marked as AI-validated.');
+  }
 
   // Step 1: Run validation and discovery in parallel
   await Promise.all([runScript('validate'), runScript('discover-agentic')]);
@@ -166,7 +170,7 @@ async function main(): Promise<void> {
       severity,
       score,
       source: isDiscovery ? 'claude-discovery' : 'playwright',
-      validated: matchingBug?.validated ?? true,
+      validated: matchingBug?.validated ?? false,
       confidence,
       consensusCount,
       discoveryPersona,
