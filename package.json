@@ -17,8 +17,8 @@
     "discover:agentic": "tsx scripts/discover-agentic.ts",
     "reverify": "tsx scripts/reverify.ts",
     "orchestrate": "tsx scripts/orchestrate.ts",
-    "full-audit": "npm run clean && npm run test:crawl && npm run test:audit && npm run report",
-    "full-audit:v2": "npm run clean && npm run test:crawl && npm run test:audit && npm run orchestrate",
+    "full-audit": "npm run clean && npm run test:crawl && npm run test:audit && npm run orchestrate",
+    "audit-only": "npm run clean && npm run test:crawl && npm run test:audit && npm run report",
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
