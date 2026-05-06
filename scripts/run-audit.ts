@@ -1,8 +1,17 @@
 import { spawn } from 'node:child_process';
 
+const procs: ReturnType<typeof spawn>[] = [];
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    procs.forEach(p => p.kill(sig));
+    process.exit(1);
+  });
+}
+
 function runLabeled(cmd: string[], label: string): Promise<number> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd[0], cmd.slice(1), { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
+    procs.push(proc);
 
     const prefix = (line: string) => process.stdout.write(`${label} ${line}\n`);
 
@@ -23,10 +32,9 @@ function runLabeled(cmd: string[], label: string): Promise<number> {
     });
 
     proc.on('close', (code) => {
-      // flush partial lines
       if (stdoutBuf) prefix(stdoutBuf);
       if (stderrBuf) prefix(stderrBuf);
-      resolve(code ?? 0);
+      resolve(code ?? 1);
     });
   });
 }
