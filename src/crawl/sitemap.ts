@@ -13,6 +13,7 @@ const SITEMAP_URLS = [
 ];
 
 const SHOP_ROUTES_URL = 'https://shop.ryzesuperfoods.com/debug/routes';
+const SHOP_SPLIT_TESTS_URL = 'https://shop.ryzesuperfoods.com/debug/split-tests';
 const SHOP_BASE = 'https://shop.ryzesuperfoods.com';
 
 const BLOG_SAMPLE_LIMIT = 20;
@@ -92,6 +93,56 @@ async function discoverShopRoutes(): Promise<Partial<UrlList>> {
   return result;
 }
 
+interface SplitTestVariation {
+  name: string;
+  url: string;
+}
+
+interface SplitTest {
+  enabled: boolean;
+  status: string;
+  variations: SplitTestVariation[];
+}
+
+/** Fetch active split test variation URLs from the live debug endpoint. */
+async function discoverShopSplitTests(): Promise<Partial<UrlList>> {
+  const result: Partial<UrlList> = {
+    product: [], page: [], cart: [], blog: [],
+  };
+
+  let json: { splitTests: SplitTest[] };
+  try {
+    const body = await curlFetch(SHOP_SPLIT_TESTS_URL);
+    json = JSON.parse(body) as { splitTests: SplitTest[] };
+  } catch (err) {
+    console.warn(`shop split-tests fetch failed: ${(err as Error).message}`);
+    return result;
+  }
+
+  const seen = new Set<string>();
+  for (const test of json.splitTests) {
+    if (!test.enabled || test.status !== 'active') continue;
+    for (const variation of test.variations) {
+      const path = variation.url;
+      if (!path || path.startsWith('http') || seen.has(path)) continue;
+      seen.add(path);
+
+      const fullUrl = `${SHOP_BASE}${path}`;
+      if (path.startsWith('/offers/') || path.startsWith('/sp/') || path.startsWith('/split-tests/') || path.startsWith('/weighloss/') || path.startsWith('/luka/cro-tests/') || path.startsWith('/holdouts/')) {
+        result.product!.push(fullUrl);
+      } else if (path.startsWith('/cart/') || path.startsWith('/luka/cart/')) {
+        result.cart!.push(fullUrl);
+      } else if (path.startsWith('/listicles/')) {
+        result.blog!.push(fullUrl);
+      } else {
+        result.page!.push(fullUrl);
+      }
+    }
+  }
+
+  return result;
+}
+
 /** Categorize a URL into one of the UrlList keys. */
 function categorize(url: string): keyof UrlList | null {
   const { pathname } = new URL(url);
@@ -144,6 +195,16 @@ export async function discoverUrls(): Promise<UrlList> {
     }
   }
   console.log(`  shop routes: ${Object.values(shopUrls).flat().length} URLs`);
+
+  // Fetch active split test variation URLs
+  console.log('Fetching shop.ryzesuperfoods.com split tests...');
+  const splitUrls = await discoverShopSplitTests();
+  for (const [cat, urls] of Object.entries(splitUrls) as [keyof UrlList, string[]][]) {
+    for (const url of urls) {
+      if (!result[cat].includes(url)) result[cat].push(url);
+    }
+  }
+  console.log(`  shop split tests (active): ${Object.values(splitUrls).flat().length} URLs`);
 
   // Build robots.txt map for each unique host in SITEMAP_URLS
   type RobotsInstance = ReturnType<typeof robotsParser>;
