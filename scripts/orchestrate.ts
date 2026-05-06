@@ -67,10 +67,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const NOISE_RULE_IDS = new Set([
+    'network:nav-failed',
+    'network:429',
+    'network:503',
+    'revenue:no-atc',
+    'js:pageerror',
+    'console:error',
+    'network:failed',
+  ]);
+
   const playwrightBugs: BugInstance[] = readFileSync(bugsSource, 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as BugInstance);
+    .map((l) => JSON.parse(l) as BugInstance)
+    .filter((b) => !NOISE_RULE_IDS.has(b.ruleId));
 
   // Step 3: Load and validate discovery findings
   const discoveries: DiscoveryFinding[] = existsSync(DISCOVERIES_PATH)

@@ -16,6 +16,8 @@ npm run test:crawl        # discover URLs → output/url-list.json
 npm run test:audit        # run all checks → output/bugs.jsonl
 npm run report            # dedupe + build .docx
 npm run full-audit        # clean + crawl + audit + report in sequence
+npm run discover:agentic  # run 4 agentic personas (Claude tool_use) after audit
+npm run orchestrate       # full pipeline: audit + agentic personas + report
 ```
 
 ---
@@ -27,6 +29,8 @@ sitemap.xml → URL list → Playwright test suite (3 viewports) → bugs.jsonl
                                                                     ↓
                                                              fingerprint dedup
                                                                     ↓
+                               agentic personas (Claude tool_use, 4 roles)
+                                                                    ↓
                                                             docx report builder
 ```
 
@@ -36,6 +40,8 @@ Key directories:
 - `src/dedupe/` — fingerprint algorithm, selector-path walker, perceptual hash
 - `src/annotate/` — sharp+SVG screenshot annotation
 - `src/report/` — docx builder (see [src/report/CLAUDE.md](src/report/CLAUDE.md))
+- `src/discovery/` — agentic persona runner (tools.ts, agent-loop.ts, persona-runner.ts)
+- `personas/` — persona markdown files (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician)
 - `data/` — allowlist-domains.txt, brand-dictionary.txt, bugs.jsonl
 - `output/` — screenshots, lighthouse reports, final .docx
 
@@ -75,7 +81,7 @@ Key directories:
 - `.myshopify.com` requests after checkout handoff
 - Stock-out countdown timers (mask in visual diffs)
 - **Rule IDs filtered entirely in `scripts/report.ts` as bot-artifact noise:**
-  - `network:nav-failed` — Edgemesh redirect blocks; pages load fine for real users
+  - `network:nav-failed` — CDN redirect blocks (formerly Edgemesh, now Cloudflare); pages load fine for real users
   - `network:429` — rate-limiting our bot
   - `revenue:no-atc` — ATC button is JS-rendered (Recharge widget), loads after our wait window
   - `js:pageerror` — ALL JS exceptions in headless Chrome are bot artifacts: Popper.js misfires without user interaction, analytics scripts blocked (Converge, Recharge), GTM-blocked jQuery; real UX breakage surfaces in axe/revenue/network checks instead
@@ -95,8 +101,9 @@ Key directories:
 
 ## Key gotchas
 
-- **Edgemesh CDN blocks Node.js `fetch` for sitemaps** — TLS fingerprint discrimination causes infinite redirect loop (`/sitemap.xml` ↔ `/em-cgi/btag/sitemap.xml`). Fix: shell out to `curl` via `execFile`.
-- **Edgemesh blocks 97/229 URLs during Playwright audit** — all `/pages/` and `/blogs/` paths return `ERR_TOO_MANY_REDIRECTS`; all 92 product pages load fine. Bot IP `162.81.107.149` needs whitelisting in Edgemesh dashboard to unblock landing pages.
+- **Cloudflare blocks Node.js `fetch` for sitemaps** — TLS fingerprint discrimination (same mechanism as prior Edgemesh setup) causes fetch failure. Fix: shell out to `curl` via `execFile`. The `/em-cgi/` noise patterns can stay — they're harmless leftovers from the Edgemesh era.
+- **shop.ryzesuperfoods.com sitemap blocked by Cloudflare** — only www.ryzesuperfoods.com's 228 URLs are in scope. shop.ryzesuperfoods.com has been unreachable via bot since Cloudflare migration; flag as ongoing advisory.
+- **Desktop browser crash after ~4h** — Cloudflare closes the page mid-run on long sessions. `page.waitForTimeout()` throws on a closed page. Always chain `.catch(() => {})` on any `waitForTimeout` call inside the URL loop.
 - **Active Shopify theme ID is `t/2676`** — CDN paths containing other theme IDs (e.g. `t/160`) are stale references from inactive themes; filter them as noise in `network:404`.
 - `shop.ryzesuperfoods.com` is headless (likely Hydrogen) — missing JSON-LD/canonicals may be intentional; flag as advisories, not defects
 - DOM price selectors (`[data-product-price]`, `.price__current`) are assumptions — verify against live DOM on first run

@@ -27,6 +27,7 @@ const NOISE_HOSTS = [
 const NOISE_RULE_IDS = new Set([
   'network:nav-failed',
   'network:429',
+  'network:503',
   'revenue:no-atc',
   'js:pageerror',
   'console:error',

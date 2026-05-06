@@ -9,7 +9,7 @@ const PRICE_SELECTORS = [
   '[class*="price"]',
 ];
 
-const ATC_SELECTORS = /add to cart|subscribe|buy now/i;
+const ATC_SELECTORS = /add to cart|subscribe|buy now|get started/i;
 
 // Track how many products have had the full ATC→cart flow run
 let atcCheckCount = 0;

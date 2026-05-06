@@ -1,5 +1,30 @@
 # Fix History
 
+## Fixed (2026-05-06) — desktop crash fix; content:typo scoped to brand-copy; agentic persona architecture
+
+**Desktop browser crash (CRASH-001):**
+- ~~`page.waitForTimeout()` throws when Cloudflare closes the page mid-run after ~4h~~ — added `.catch(() => {})` to all `waitForTimeout` calls inside the URL loop in `crawl.spec.ts`. Symptom: last viewport's bugs silently lost; test exits with unhandled rejection.
+
+**content:typo noise (TYPO-001):**
+- ~~Spell-check scanned all visible page text including reviews, customer names, Spanish UGC~~ — replaced full-page TreeWalker with targeted selector query (`h1-h6`, `button`, `nav a`, `.product__title`, hero/description `p`). Added ancestor-walk exclusion for review sections (Okendo, Yotpo, Loox, etc.). Result: 20k raw bugs run 1 → 10k run 2 → expected major reduction run 3.
+- ~~Brand dictionary had only ~17 entries~~ — expanded to ~100 wellness/supplement/brand terms covering mushroom varieties, adaptogens, probiotics, brand-specific vocabulary.
+- ~~Short words and accented characters flagged~~ — added `minWordLength: 5` and `ignoreRegExpList` for accented chars to `cspell.json`.
+
+**Agentic persona architecture (AGENT-001):**
+- Added `src/discovery/` module: `tools.ts` (Playwright tool implementations with guardrails), `agent-loop.ts` (Claude tool_use single-session runner), `persona-runner.ts` (multi-session orchestrator per persona).
+- 4 personas (`personas/*.md`): Revenue Hawk (products/cart/collection), Skeptical First-Timer (home/product/blog, mobile), Brand Purist (all URLs), Forensic Technician (products/pages/policy).
+- Entry point: `scripts/discover-agentic.ts` — runs 2 personas concurrently (matching 2-browser constraint), inter-session findings summary via `buildFindingsSummary()`.
+- `scripts/orchestrate.ts` updated: `discover` → `discover-agentic`.
+- Guardrails: non-ryze hosts, `/admin`, `/account/login`, `/checkout` paths, and checkout button selectors blocked at tool layer.
+
+**CDN migration (INFRA-001):**
+- Confirmed Edgemesh replaced by Cloudflare. Curl workaround in `sitemap.ts` still required (same TLS fingerprinting). `/pages/` routes now accessible (120 URLs in scope vs 0 before). `/em-cgi/` noise patterns are harmless to keep. `shop.ryzesuperfoods.com` sitemap still blocked; 228 www URLs remain in scope.
+
+**Key insights:**
+- Cloudflare disconnects long-running bot sessions at ~4h regardless of `caffeinate`. Any `page.*` call after disconnect throws — guard all post-navigation calls with `.catch(() => {})`.
+- Review section exclusion in content:typo must use ancestor-walk, not just direct parent — Okendo widgets nest many levels deep and only mark the outermost container.
+- Multi-session agentic personas: each persona gets a URL budget per session (20 URLs) and receives a findings summary from prior sessions as context — balances cross-page awareness vs. Claude context window cost.
+
 ## Fixed (2026-05-05) — 35 findings implemented across 5 domains; full dedup/noise/ATC/crawl pipeline now correct
 
 **Content check (CONTENT-001–007):**
