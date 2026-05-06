@@ -7,7 +7,11 @@ import type { BugInstance, DiscoveryFinding, ScoredBug, BugClass, ReportHistoryE
 import { deduplicateBugs, computeFingerprint } from '../src/dedupe/fingerprint.js';
 import { scoreBug } from '../src/scoring/scorer.js';
 import { enforceEvidence } from '../src/scoring/evidence-enforcer.js';
-import { buildDocx } from '../src/report/docx-builder.js';
+import { buildHtml } from '../src/report/html-builder.js';
+import { exportPdf } from '../src/report/pdf-exporter.js';
+import { generateSummaries } from './summarise.js';
+import { assignCategories } from './categorise.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 const execFileAsync = promisify(execFile);
 
@@ -56,6 +60,9 @@ async function runScript(script: string): Promise<void> {
 async function main(): Promise<void> {
   mkdirSync(OUTPUT_DIR, { recursive: true });
   mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const client = apiKey ? new Anthropic({ apiKey }) : null;
 
   // Step 1: Run validation and discovery in parallel
   await Promise.all([runScript('validate'), runScript('discover-agentic')]);
@@ -184,25 +191,47 @@ async function main(): Promise<void> {
     ),
   );
 
-  // Step 10: Build report
-  const buffer = await buildDocx(finalScored, {
-    crawlDate: DATE,
-    totalPages: new Set(finalScored.flatMap((b) => b.urls)).size,
-    sites: ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'],
-  });
-  const reportPath = join(OUTPUT_DIR, `audit-report-${DATE}.docx`);
-  writeFileSync(reportPath, buffer);
-  console.log(`\n📄 Report written to ${reportPath}`);
+  // Step 10a: Generate plain-English summaries
+  console.log('\n✍️  Generating summaries...');
+  const withSummaries = client
+    ? await generateSummaries(client, finalScored)
+    : finalScored;
 
-  // Step 11: Executive summary
-  const critical = finalScored.filter((b) => b.severity === 'critical').length;
-  const high = finalScored.filter((b) => b.severity === 'high').length;
-  const medium = finalScored.filter((b) => b.severity === 'medium').length;
-  const low = finalScored.filter((b) => b.severity === 'low').length;
+  // Step 10b: Assign categories
+  console.log('\n🏷️  Assigning categories...');
+  const withCategories = client
+    ? await assignCategories(client, withSummaries)
+    : withSummaries;
+
+  // Step 11: Build HTML report
+  const reportMeta = {
+    crawlDate: DATE,
+    totalPages: new Set(withCategories.flatMap((b) => b.urls)).size,
+    sites: ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'],
+  };
+  const html = await buildHtml(withCategories, reportMeta);
+  const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
+  writeFileSync(htmlPath, html, 'utf8');
+  console.log(`\n📄 HTML report written to ${htmlPath}`);
+
+  // Step 12: Export PDF
+  const pdfPath = join(OUTPUT_DIR, `audit-report-${DATE}.pdf`);
+  try {
+    await exportPdf(htmlPath, pdfPath);
+    console.log(`📄 PDF report written to ${pdfPath}`);
+  } catch (err) {
+    console.warn('⚠️  PDF export failed — HTML report is still available:', (err as Error).message);
+  }
+
+  // Step 13: Executive summary
+  const critical = withCategories.filter((b) => b.severity === 'critical').length;
+  const high = withCategories.filter((b) => b.severity === 'high').length;
+  const medium = withCategories.filter((b) => b.severity === 'medium').length;
+  const low = withCategories.filter((b) => b.severity === 'low').length;
   console.log(`\n📊 Executive Summary:`);
   console.log(`   Critical: ${critical}  High: ${high}  Medium: ${medium}  Low: ${low}`);
   console.log(
-    `   Total: ${finalScored.length} (${finalScored.filter((b) => b.source === 'claude-discovery').length} AI-discovered)`,
+    `   Total: ${withCategories.length} (${withCategories.filter((b) => b.source === 'claude-discovery').length} AI-discovered)`,
   );
 }
 

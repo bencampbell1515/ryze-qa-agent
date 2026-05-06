@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BugInstance } from '../src/types.js';
 import { deduplicateBugs } from '../src/dedupe/fingerprint.js';
-import { buildDocx } from '../src/report/docx-builder.js';
+import { buildHtml } from '../src/report/html-builder.js';
+import { exportPdf } from '../src/report/pdf-exporter.js';
 
 const BUGS_PATH = join(process.cwd(), 'data', 'bugs.jsonl');
 const OUTPUT_DIR = join(process.cwd(), 'output');
@@ -102,16 +103,29 @@ async function main(): Promise<void> {
     totalPages = new Set(instances.map((i) => i.url)).size;
   }
 
-  const buffer = await buildDocx(records, {
-    crawlDate: DATE,
-    totalPages,
-    sites: ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'],
-  });
+  const sites = ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'];
 
-  const outPath = join(OUTPUT_DIR, `audit-report-${DATE}.docx`);
-  writeFileSync(outPath, buffer);
-  console.log(`\nReport saved: ${outPath}`);
-  console.log(`Total unique bugs: ${records.length} (Critical: ${breakdown.critical}, High: ${breakdown.high}, Medium: ${breakdown.medium}, Low: ${breakdown.low})`);
+  const scoredRecords = records.map((r) => ({
+    ...r,
+    score: 0,
+    source: 'playwright' as const,
+    confidence: 1.0,
+    consensusCount: 1,
+  }));
+  const html = await buildHtml(scoredRecords, { crawlDate: DATE, totalPages, sites });
+  const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
+  writeFileSync(htmlPath, html, 'utf8');
+  console.log(`HTML report written to ${htmlPath}`);
+
+  const pdfPath = join(OUTPUT_DIR, `audit-report-${DATE}.pdf`);
+  try {
+    await exportPdf(htmlPath, pdfPath);
+    console.log(`PDF report written to ${pdfPath}`);
+  } catch (err) {
+    console.warn('PDF export failed:', (err as Error).message);
+  }
+
+  console.log(`\nTotal unique bugs: ${records.length} (Critical: ${breakdown.critical}, High: ${breakdown.high}, Medium: ${breakdown.medium}, Low: ${breakdown.low})`);
 }
 
 main().catch((err) => {

@@ -91,6 +91,10 @@ export interface ScoredBug extends BugRecord {
   verificationStatus?: VerificationStatus;
   consensusCount: number;
   discoveryPersona?: string;
+  /** LLM-generated plain-English 1–2 sentence summary for the report card */
+  summary?: string;
+  /** Human-readable category label assigned during orchestrate (e.g. "Sale Pricing") */
+  category?: string;
 }
 
 export interface UrlList {

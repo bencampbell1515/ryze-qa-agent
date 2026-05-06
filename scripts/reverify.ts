@@ -1,5 +1,5 @@
 // scripts/reverify.ts
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import type { ScoredBug, VerificationStatus } from '../src/types.js';
@@ -20,7 +20,7 @@ async function verifyBug(page: import('@playwright/test').Page, bug: ScoredBug):
       return response.status() === 404 ? 'confirmed' : 'could-not-reproduce';
     }
 
-    if (bug.ruleId.startsWith('a11y:') && bug.selector) {
+    if (bug.ruleId.startsWith('axe:') && bug.selector) {
       const el = page.locator(bug.selector).first();
       const visible = await el.isVisible().catch(() => false);
       return visible ? 'confirmed' : 'could-not-reproduce';
@@ -60,6 +60,24 @@ async function main(): Promise<void> {
       process.stdout.write(`  → [${bug.score.toFixed(1)}] ${bug.ruleId} @ ${bug.urls[0]}... `);
       const status = await verifyBug(page, bug);
       bug.verificationStatus = status;
+
+      // Capture element screenshot for bugs with a known selector
+      if (bug.selector) {
+        try {
+          const el = page.locator(bug.selector).first();
+          const visible = await el.isVisible({ timeout: 3_000 }).catch(() => false);
+          if (visible) {
+            const shotDir = join(process.cwd(), 'output', 'screenshots');
+            mkdirSync(shotDir, { recursive: true });
+            const shotPath = join(shotDir, `${bug.fingerprint}-element.png`);
+            await el.screenshot({ path: shotPath });
+            bug.elementShot = shotPath;
+          }
+        } catch {
+          // non-blocking — report build falls back gracefully
+        }
+      }
+
       const icon = status === 'confirmed' ? '✅' : status === 'could-not-reproduce' ? '❌' : '❓';
       console.log(`${icon} ${status}`);
     }

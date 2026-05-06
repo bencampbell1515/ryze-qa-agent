@@ -1,9 +1,9 @@
 # Ryze QA Agent
 
-Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces a `.docx` audit report.
+Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces an HTML + PDF audit report.
 
 **Target sites:** https://www.ryzesuperfoods.com · https://shop.ryzesuperfoods.com
-**Output:** `output/audit-report-<date>.docx`
+**Output:** `output/audit-report-<date>.html` + `output/audit-report-<date>.pdf`
 
 ---
 
@@ -14,7 +14,7 @@ npm install               # install deps (Node 20+, uses system Chrome — no br
 npm run clean             # clear data/bugs.jsonl and data/tmp before a fresh run
 npm run test:crawl        # discover URLs → output/url-list.json
 npm run test:audit        # run all checks → output/bugs.jsonl
-npm run report            # dedupe + build .docx
+npm run report            # dedupe + build HTML + PDF report
 npm run full-audit        # clean + crawl + audit + report in sequence
 npm run discover:agentic  # run 4 agentic personas (Claude tool_use) after audit
 npm run orchestrate       # full pipeline: audit + agentic personas + report
@@ -31,7 +31,7 @@ sitemap.xml → URL list → Playwright test suite (3 viewports) → bugs.jsonl
                                                                     ↓
                                agentic personas (Claude tool_use, 4 roles)
                                                                     ↓
-                                                            docx report builder
+                                                         HTML + PDF report builder
 ```
 
 Key directories:
@@ -43,7 +43,7 @@ Key directories:
 - `src/discovery/` — agentic persona runner (tools.ts, agent-loop.ts, persona-runner.ts)
 - `personas/` — persona markdown files (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician)
 - `data/` — allowlist-domains.txt, brand-dictionary.txt, bugs.jsonl
-- `output/` — screenshots, lighthouse reports, final .docx
+- `output/` — screenshots, lighthouse reports, final .html + .pdf
 
 ---
 
