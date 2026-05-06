@@ -23,6 +23,13 @@ const PERSONA_VIEWPORT: Record<string, { width: number; height: number; isMobile
   'forensic-technician':   { width: 1440, height: 900, isMobile: false },
 };
 
+const PERSONA_MODEL: Record<string, string> = {
+  'revenue-hawk':          'claude-haiku-4-5-20251001',
+  'skeptical-first-timer': 'claude-sonnet-4-6',
+  'brand-purist':          'claude-sonnet-4-6',
+  'forensic-technician':   'claude-haiku-4-5-20251001',
+};
+
 function buildFindingsSummary(discoveriesPath: string, personaName: string): string {
   if (!existsSync(discoveriesPath)) return '';
   const lines = readFileSync(discoveriesPath, 'utf8').split('\n').filter(Boolean);
@@ -86,6 +93,7 @@ export async function runPersona(opts: {
         screenshotsDir,
         discoveriesPath,
         sessionBudget: SESSION_BUDGET,
+        model: PERSONA_MODEL[personaName] ?? 'claude-sonnet-4-6',
       });
 
       for (const url of result.visitedUrls) visited.add(url);
