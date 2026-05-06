@@ -46,7 +46,7 @@ sitemap.xml + /debug/routes + /debug/split-tests → URL list
                        summaries + categories | HTML + PDF
 ```
 
-**Personas:** revenue-hawk (Haiku), forensic-technician (Haiku), brand-purist (Sonnet), skeptical-first-timer (Sonnet). Run 2 concurrent (browser limit). Each works in URL batches with a prior-findings summary for cross-batch continuity.
+**Personas:** All 4 run on `claude-haiku-4-5-20251001` — revenue-hawk, forensic-technician, brand-purist, skeptical-first-timer. Run 2 concurrent (browser limit). Each works in URL batches of 7 URLs (`SESSION_BUDGET = 7`) with a prior-findings summary for cross-batch continuity.
 
 Key directories:
 - `tests/` — Playwright specs + check modules (see [tests/CLAUDE.md](tests/CLAUDE.md))
@@ -121,6 +121,10 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`scripts/run-audit.ts` handles parallel launch + signal forwarding** — spawns `test:audit` and `discover:agentic` simultaneously. Handles Ctrl-C by forwarding SIGINT to both children (otherwise they run for the rest of the session orphaned). Persona failure is non-fatal; Playwright failure aborts the pipeline.
 - **`personas/dr-marcus-chen.md` exists but is NOT wired in** — only four personas run: revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician. Marcus Chen was written during an earlier design iteration and never added to `PERSONA_BATCHES` in `discover-agentic.ts`.
 - **Semantic dedup runs on persona findings only, before merge** — `scripts/semantic-dedup.ts` sends all `discoveries.jsonl` entries to Haiku in one batch to collapse duplicates. SHA1 fingerprint dedup still runs after merge for Playwright findings. If the Haiku call fails, dedup is skipped silently (soft failure).
+- **Sonnet personas burn ~$7 in under 2 minutes — do not use Sonnet for browsing personas** — observed empirically: `skeptical-first-timer` on Sonnet made 83 tool calls for 20 URLs. Full 4-persona × 245-URL run on Sonnet would cost ~$80–150. All 4 personas now use Haiku (~$3–10 estimated for full run). Never switch brand-purist or skeptical-first-timer back to Sonnet without a hard per-persona URL cap.
+- **`SESSION_BUDGET` reduced from 20 → 7 for Haiku** — Haiku's structured output (JSON schema adherence) degrades as context fills within a session. 7 URLs/session keeps context lean; total URL coverage is unchanged across multiple sessions. If you raise this, watch for malformed `submit_finding` calls in later turns of each session.
+- **Stuck-loop detection in `agent-loop.ts`** — after 3 consecutive identical tool calls (same tool name + same args), a LOOP GUARD reflection message is injected as a user turn and the count resets. The loop does NOT break — the agent is given a chance to recover. This prevents infinite loops on slow-loading elements or stubborn selectors.
+- **Persona prompts hardened for Haiku quality** — all 4 persona files now include: numbered per-URL checklists (replacing abstract mandates), ARQ pre-answer scratchpad before `submit_finding` (What did I observe? / Is this a defect? / What severity?), domain exclusion lists (each persona states what it does NOT flag), explicit termination condition, and 2 inline few-shot examples. `brand-purist.md` includes injected brand facts (product name table, on/off-brand tone examples) since Haiku has no implicit brand knowledge.
 - **Soft hyphens (U+00AD) split words in cspell (SPELL-001, FIXED)** — HTML soft hyphens that render invisibly to users appear as word-boundary characters to cspell, causing false typo reports on valid words. `tests/checks/content.ts` now strips U+00AD before writing the tmpfile.
 
 ---

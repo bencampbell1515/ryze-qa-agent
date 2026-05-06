@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { runSession } from './agent-loop.js';
 import type { DiscoveryFinding, UrlList } from '../types.js';
 
-const SESSION_BUDGET = 20;
+const SESSION_BUDGET = 7;
 const PERSONAS_DIR = join(process.cwd(), 'personas');
 
 const PERSONA_URL_TYPES: Record<string, Array<keyof UrlList>> = {
@@ -25,8 +25,8 @@ const PERSONA_VIEWPORT: Record<string, { width: number; height: number; isMobile
 
 const PERSONA_MODEL: Record<string, string> = {
   'revenue-hawk':          'claude-haiku-4-5-20251001',
-  'skeptical-first-timer': 'claude-sonnet-4-6',
-  'brand-purist':          'claude-sonnet-4-6',
+  'skeptical-first-timer': 'claude-haiku-4-5-20251001',
+  'brand-purist':          'claude-haiku-4-5-20251001',
   'forensic-technician':   'claude-haiku-4-5-20251001',
 };
 

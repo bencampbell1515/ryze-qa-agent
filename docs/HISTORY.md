@@ -1,5 +1,24 @@
 # Fix History
 
+## Changed (2026-05-06) — all personas switched to Haiku; SESSION_BUDGET 20→7; prompts hardened for smaller model
+
+**Cost incident:** `skeptical-first-timer` on Sonnet 4.6 made 83 tool calls for 20 URLs and burned ~$7 in under 2 minutes. A full 4-persona × 245-URL run on Sonnet would have cost ~$80–150. Run killed manually.
+
+**Changes shipped:**
+- `src/discovery/persona-runner.ts` — `PERSONA_MODEL` updated: brand-purist and skeptical-first-timer switched from `claude-sonnet-4-6` to `claude-haiku-4-5-20251001`. All 4 personas now Haiku.
+- `src/discovery/persona-runner.ts` — `SESSION_BUDGET` reduced from 20 to 7. Haiku context degrades in later turns; shorter sessions keep JSON adherence high. Total URL coverage unchanged.
+- `src/discovery/agent-loop.ts` — added stuck-loop detection: 3 consecutive identical tool calls (same name + args) injects a LOOP GUARD reflection as a user turn and resets the count. Loop does not break — agent can recover.
+- `personas/brand-purist.md` — full rewrite: replaced "you know the brand deeply" with injected Brand Facts (product name table sourced from url-list.json, on/off-brand tone examples with verbatim excerpts); abstract mandate replaced with 6-item numbered checklist; added ARQ scratchpad, domain exclusion list, termination condition, 2 inline examples.
+- `personas/skeptical-first-timer.md` — rewrite: vague "copy that feels inconsistent" items replaced with 7 concrete mobile checks (hamburger menu, ATC above fold on 390px, Okendo within 3s, serving-size cross-check, etc.); added ARQ scratchpad, exclusion list, termination condition, 2 examples.
+- `personas/revenue-hawk.md` — additions: numbered 6-step checklist, ARQ scratchpad, domain exclusion list, termination condition, 2 inline examples.
+- `personas/forensic-technician.md` — additions: numbered 5-step checklist, explicit `network:failed` ≠ bug callout in exclusion list, ARQ scratchpad, termination condition, 2 inline examples.
+
+**Key insights:**
+- Sonnet at ~4 tool calls/URL × 245 URLs × 2 personas = ~2,000 Sonnet calls = $80–150. Never run Sonnet personas without a URL cap.
+- Haiku context degrades within a session — shorter batches (7 URLs) are measurably better for JSON schema adherence than 20-URL batches even though total token cost is similar.
+- ARQ pre-answer scratchpad (observe → defect? → severity?) is the most effective single anti-hallucination technique for tool-calling agents: it forces deliberate reasoning before `submit_finding` fires.
+- Haiku has no implicit brand knowledge. "You know the RYZE brand deeply" is false for Haiku — inject the actual facts (product name table, tone red flags with examples) directly into the persona prompt or findings will be invented.
+
 ## Pipeline redesign implemented (2026-05-06) — personas parallel with Playwright; reverify removed; semantic dedup added
 
 **New pipeline (`npm run full-audit`):**

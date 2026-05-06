@@ -1,0 +1,48 @@
+
+> ryze-qa@0.1.0 full-audit
+> npm run clean && npm run test:crawl && npx tsx scripts/run-audit.ts && npm run orchestrate
+
+
+> ryze-qa@0.1.0 clean
+> rm -f data/bugs.jsonl data/tmp/*.txt data/validated-bugs.jsonl data/discoveries.jsonl data/scored-bugs.json
+
+
+> ryze-qa@0.1.0 test:crawl
+> tsx scripts/crawl.ts
+
+Fetching sitemaps...
+Fetching shop.ryzesuperfoods.com routes...
+  shop routes: 22 URLs
+Fetching shop.ryzesuperfoods.com split tests...
+  shop split tests (active): 13 URLs
+
+Discovered 245 URLs:
+  home: 1
+  product: 107
+  page: 123
+  blog: 11
+  cart: 3
+
+Written to /Users/ryzeuser/Claude Code/QA Agent/output/url-list.json
+[persona] 
+[persona] > ryze-qa@0.1.0 discover:agentic
+[persona] > tsx scripts/discover-agentic.ts
+[persona] 
+[playwright] 
+[playwright] > ryze-qa@0.1.0 test:audit
+[playwright] > playwright test tests/crawl.spec.ts --grep @audit
+[playwright] 
+[persona] 
+[persona] 🔍 Agentic discovery: 245 URLs across 4 personas (2 concurrent)
+[persona] 
+[persona] 
+[persona] ▶ Batch: revenue-hawk + skeptical-first-timer
+[playwright] 
+[playwright] Running 4 tests using 2 workers
+[playwright] 
+[playwright] [1A[2K[1/4] [tablet] › tests/crawl.spec.ts:47:1 › @audit — run full audit across all URLs
+[playwright] [1A[2K[2/4] [desktop] › tests/crawl.spec.ts:47:1 › @audit — run full audit across all URLs
+[persona]   [revenue-hawk] Session 1: 110 URLs remaining
+[persona]   [skeptical-first-timer] Session 1: 119 URLs remaining
+[persona]   [skeptical-first-timer] Session 1: visited 20 URLs, 83 tool calls
+[persona]   [skeptical-first-timer] Session 2: 99 URLs remaining

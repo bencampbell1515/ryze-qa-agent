@@ -1,4 +1,5 @@
 // scripts/discover-agentic.ts
+import 'dotenv/config';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';

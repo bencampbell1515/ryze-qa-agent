@@ -60,6 +60,8 @@ export async function runSession(opts: SessionOptions): Promise<SessionResult> {
   ];
 
   let toolCallCount = 0;
+  let lastToolKey = '';
+  let consecutiveCount = 0;
 
   while (toolCallCount < MAX_TOOL_CALLS) {
     const response = await client.messages.create({
@@ -88,6 +90,20 @@ export async function runSession(opts: SessionOptions): Promise<SessionResult> {
         sessionDone = true;
         toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: 'Session complete.' });
         break;
+      }
+
+      const currentToolKey = `${toolUse.name}:${JSON.stringify(toolUse.input)}`;
+      if (currentToolKey === lastToolKey) {
+        consecutiveCount++;
+      } else {
+        lastToolKey = currentToolKey;
+        consecutiveCount = 1;
+      }
+      if (consecutiveCount >= 3) {
+        const reflection =
+          '[LOOP GUARD] You have called the same tool with the same arguments 3 times in a row. This suggests you may be stuck. Choose a different approach, try a different selector, or call done() if you have processed all URLs in your batch.';
+        messages.push({ role: 'user', content: reflection });
+        consecutiveCount = 0;
       }
 
       const result = await tools.execute(toolUse.name, toolUse.input as Record<string, unknown>);
