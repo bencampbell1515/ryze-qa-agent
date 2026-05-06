@@ -1,5 +1,14 @@
 # Fix History
 
+## Fixed (2026-05-06) — shop. URL discovery via debug endpoints
+
+- ~~`shop.ryzesuperfoods.com` returning 0 crawl URLs~~ — sitemap doesn't exist (404 → redirects to `/fb?rz_track=error`). Fixed by switching to two live debug endpoints: `/debug/routes` (routing table) and `/debug/split-tests` (A/B experiment variants, active-only). Both fetched on every crawl run in `src/crawl/sitemap.ts`. URL count: 0 → 32 shop. pages; total crawl: 215 → 242.
+
+**Key insights:**
+- The shop. sitemap absence is NOT a Cloudflare block — confirmed by Felipe (no WAF rules). It simply doesn't exist on the headless Hydrogen storefront.
+- `/debug/routes` maps ad-traffic shortcuts to destination pages (19 unique enabled internal paths). `/debug/split-tests` lists A/B experiment variants (13 URLs from 6 active tests). These endpoints are live and change as routes/experiments are added — crawling them fresh every run is correct.
+- `npm run orchestrate` is a post-processing script only — it requires `data/bugs.jsonl` to already exist. It does NOT run crawl or audit. Full fresh scan: `npm run test:crawl && npm run test:audit && npm run orchestrate`.
+
 ## Fixed (2026-05-06) — HTML/PDF report redesign; ATC selector; 503 noise; orchestrate noise bypass
 
 **Report redesign (REPORT-010):**
