@@ -1,5 +1,48 @@
 # Fix History
 
+## Pipeline redesign implemented (2026-05-06) — personas parallel with Playwright; reverify removed; semantic dedup added
+
+**New pipeline (`npm run full-audit`):**
+```
+clean → crawl → [test:audit ‖ discover:agentic] → orchestrate
+```
+Playwright and all 4 personas now run simultaneously via `scripts/run-audit.ts`. Previously personas ran after Playwright finished, making a ~2h sequential bottleneck. Estimated wall-clock saving per run: 30–60 min.
+
+**Changes shipped:**
+- `scripts/run-audit.ts` (new) — parallel launcher. Spawns both child processes, streams labeled `[playwright]` / `[persona]` output, forwards SIGINT/SIGTERM to children so Ctrl-C kills both (previously orphaned for the full run duration). Persona failure is non-fatal.
+- `src/discovery/agent-loop.ts` — added `model?: string` to `SessionOptions`; passed through to `client.messages.create`.
+- `src/discovery/persona-runner.ts` — added `PERSONA_MODEL` map: revenue-hawk + forensic-technician → Haiku (structured checks); brand-purist + skeptical-first-timer → Sonnet (qualitative judgment). Saves ~$10–15/run vs. all-Sonnet.
+- `scripts/semantic-dedup.ts` (new) — single Haiku batch call that collapses duplicate persona findings before merge. Soft-fails if the LLM call errors; never blocks the report.
+- `scripts/orchestrate.ts` — removed `reverify` step entirely; Step 1 now runs validate only (personas already finished); semantic dedup inserted after loading discoveries.
+- `package.json` — `full-audit` now uses `run-audit.ts`; `audit-only` kept for cost-free runs.
+
+**Key insights:**
+- `reverify.ts` had three independent bugs (logic inverted, wrong rule prefix, wrong screenshot field) and has never produced correct output. It is no longer called by any pipeline step. The file is kept but effectively retired.
+- `scripts/run-audit.ts` must use `shell: false` (the default) — `shell: true` routes SIGTERM to the shell wrapper process, not to `npm`, leaving both audit processes running after Ctrl-C.
+- `code ?? 1` not `code ?? 0` on the spawn `close` event — `null` means the process was killed by a signal; treating it as exit-0 silently marks a killed Playwright run as success.
+- `personas/dr-marcus-chen.md` exists but was never wired in. Only the four named personas in `PERSONA_BATCHES` run.
+
+## Fixed (2026-05-06) — 7 audit findings from docs/audit-2026-05-06.md
+
+All findings from the 2026-05-06 self-audit that could be fixed without the pipeline redesign were resolved this session:
+
+- ~~**AXE-001 (HIGH):** Okendo widget flooding axe with false WCAG violations~~ — added `[data-okendo-initialized]`, `[class*="okeReviews"]`, `#okendo-reviews-widget` to `EXCLUDED_SELECTORS` in `tests/checks/a11y.ts`.
+- ~~**VALID-001 (CRITICAL):** `validated: ?? true` default when API key absent~~ — changed to `?? false`; added `[WARN]` log at startup when key missing.
+- ~~**VALID-002:** Gated log messages appearing when API key absent~~ — wrapped validate/summarise/categorise log lines in key-presence check.
+- ~~**SPELL-002 (CRITICAL):** No Spanish dictionary~~ — installed `@cspell/dict-es-es`, added `import` directive and `"es-es"` to dictionaries in `cspell.json`. Dictionary name is `es-es` (hyphenated), not `es_ES`.
+- ~~**SPELL-001 (HIGH):** Soft hyphens (U+00AD) splitting words in cspell~~ — strip U+00AD from text before writing cspell tmpfile in `tests/checks/content.ts`.
+- ~~**NET-002 (HIGH):** Stale-theme and Edgemesh 404s written to bugs.jsonl~~ — added `NOISE_404_URL_PATTERNS` and capture-time filter in `tests/checks/network.ts`.
+- ~~**REVY-003 (HIGH):** `verificationStatus` badge not rendered in report cards~~ — added `verifyBadge` rendering in `src/report/html-builder.ts` + CSS in `styles.ts`.
+- ~~**DEDUP-002 (MEDIUM):** Hamming distance used `parseInt(a[i], 16)` on binary strings~~ — fixed to direct character comparison in `src/dedupe/perceptual-hash.ts`.
+- **AXE-002 (MEDIUM): NOT A BUG** — `moderate` falls through to `'medium'` correctly via the else branch. No fix needed.
+- **REVY-001/002/004 (HIGH): already fixed in prior session** — reverify.ts bugs were corrected before the audit doc was written. Moot now that reverify is removed from the pipeline entirely.
+
+**Key insights:**
+- Always run `npm run clean` before `npm run full-audit`. Running `validate.ts` standalone against accumulated bugs.jsonl from multiple sessions cost $4 in API calls on 55k entries before the issue was caught.
+- The cspell Spanish dictionary import name is `es-es` (hyphenated in the package's own cspell-ext.json), not `es_ES`. Using the wrong name causes the dictionary to silently not load.
+
+
+
 ## Fixed (2026-05-06) — shop. URL discovery via debug endpoints
 
 - ~~`shop.ryzesuperfoods.com` returning 0 crawl URLs~~ — sitemap doesn't exist (404 → redirects to `/fb?rz_track=error`). Fixed by switching to two live debug endpoints: `/debug/routes` (routing table) and `/debug/split-tests` (A/B experiment variants, active-only). Both fetched on every crawl run in `src/crawl/sitemap.ts`. URL count: 0 → 32 shop. pages; total crawl: 215 → 242.

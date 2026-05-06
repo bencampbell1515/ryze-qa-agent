@@ -13,26 +13,40 @@ Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesu
 npm install               # install deps (Node 20+, uses system Chrome — no browser download)
 npm run clean             # clear data/bugs.jsonl and data/tmp before a fresh run
 npm run test:crawl        # discover URLs → output/url-list.json
-npm run test:audit        # run all checks → output/bugs.jsonl
+npm run test:audit        # run all checks → output/bugs.jsonl (Playwright only)
 npm run report            # dedupe + build HTML + PDF report
-npm run full-audit        # clean + crawl + audit + report in sequence
-npm run discover:agentic  # run 4 agentic personas (Claude tool_use) after audit
-npm run orchestrate       # post-processing pipeline: validate + agentic personas + report (requires bugs.jsonl)
+npm run full-audit        # clean + crawl + [playwright ‖ personas] + orchestrate (full pipeline)
+npm run audit-only        # clean + crawl + playwright + report (no LLM steps — fast, zero cost)
+npm run discover:agentic  # run 4 agentic personas standalone (reads url-list.json)
+npm run orchestrate       # post-processing: validate + semantic-dedup + score + summaries + report
 ```
+
+**`full-audit` pipeline order:**
+```
+clean → test:crawl → run-audit.ts [test:audit ‖ discover:agentic] → orchestrate
+```
+Playwright and personas run in parallel via `scripts/run-audit.ts`. Both must finish before orchestrate starts.
 
 ---
 
 ## Architecture
 
 ```
-sitemap.xml + /debug/routes + /debug/split-tests → URL list → Playwright test suite (3 viewports) → bugs.jsonl
-                                                                    ↓
-                                                             fingerprint dedup
-                                                                    ↓
-                               agentic personas (Claude tool_use, 4 roles)
-                                                                    ↓
-                                                         HTML + PDF report builder
+sitemap.xml + /debug/routes + /debug/split-tests → URL list
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+         Playwright (3 viewports)        4 agentic personas
+         → data/bugs.jsonl              → data/discoveries.jsonl
+                    └───────────────┬───────────────┘
+                                    ▼
+                               orchestrate
+                    validate bugs | semantic-dedup discoveries
+                         merge + SHA1 dedup | score
+                       summaries + categories | HTML + PDF
 ```
+
+**Personas:** revenue-hawk (Haiku), forensic-technician (Haiku), brand-purist (Sonnet), skeptical-first-timer (Sonnet). Run 2 concurrent (browser limit). Each works in URL batches with a prior-findings summary for cross-batch continuity.
 
 Key directories:
 - `tests/` — Playwright specs + check modules (see [tests/CLAUDE.md](tests/CLAUDE.md))
@@ -103,6 +117,11 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **No Spanish dictionary in cspell (SPELL-002, FIXED)** — `@cspell/dict-es-es` is now installed and loaded via `import` in `cspell.json`. Spanish-language content blocks and testimonials no longer generate false `content:typo` findings.
 - **`validated: true` default when `ANTHROPIC_API_KEY` is absent (VALID-001, FIXED)** — The fallback in `orchestrate.ts` is now `?? false`, and a `[WARN]` message fires at startup when the key is absent. Bugs are no longer falsely marked as AI-validated when validation never ran. API key goes in `.env` at project root (dotenv is installed and wired into all LLM scripts).
 - **`axe:moderate` violations map to medium severity (AXE-002, NOT A BUG)** — `moderate` impact falls through the `else` branch in `runA11yCheck` and is correctly mapped to `'medium'` severity. No `severityMap` entry is needed; the existing logic handles it. No fix required.
+- **`reverify` is no longer part of the pipeline** — removed from `orchestrate.ts`. Live persona browsing during the audit replaces its purpose. The `reverify.ts` script still exists but is not called by any pipeline step.
+- **`scripts/run-audit.ts` handles parallel launch + signal forwarding** — spawns `test:audit` and `discover:agentic` simultaneously. Handles Ctrl-C by forwarding SIGINT to both children (otherwise they run for the rest of the session orphaned). Persona failure is non-fatal; Playwright failure aborts the pipeline.
+- **`personas/dr-marcus-chen.md` exists but is NOT wired in** — only four personas run: revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician. Marcus Chen was written during an earlier design iteration and never added to `PERSONA_BATCHES` in `discover-agentic.ts`.
+- **Semantic dedup runs on persona findings only, before merge** — `scripts/semantic-dedup.ts` sends all `discoveries.jsonl` entries to Haiku in one batch to collapse duplicates. SHA1 fingerprint dedup still runs after merge for Playwright findings. If the Haiku call fails, dedup is skipped silently (soft failure).
+- **Soft hyphens (U+00AD) split words in cspell (SPELL-001, FIXED)** — HTML soft hyphens that render invisibly to users appear as word-boundary characters to cspell, causing false typo reports on valid words. `tests/checks/content.ts` now strips U+00AD before writing the tmpfile.
 
 ---
 

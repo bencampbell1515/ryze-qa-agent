@@ -6,6 +6,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 
 | File | Purpose |
 |------|---------|
+| run-audit.ts | Parallel launcher: spawns `test:audit` + `discover:agentic` simultaneously, streams labeled output, forwards SIGINT/SIGTERM |
 | crawl.ts | Fetches sitemap via curl, writes `output/url-list.json` |
 | report.ts | Reads bugs.jsonl → noise filter → dedup → html-builder → pdf-exporter |
 | orchestrate.ts | Full pipeline: audit → agentic personas → report (has own `NOISE_RULE_IDS` — must mirror `report.ts`) |
