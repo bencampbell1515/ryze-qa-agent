@@ -19,11 +19,20 @@ const NOISE_HOSTS = [
 
 const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/', '/em-prerender'];
 
-function isNoise(url: string): boolean {
+const NOISE_404_URL_PATTERNS = [
+  /\/em-prerender/,
+  /\/em-cgi\//,
+  /\/em-js\//,
+  /cdn\.shopify\.com\/s\/files\/.*\/t\/(?!2676\/)[0-9]+\//,
+  /\/t\?event=/,
+];
+
+function isNoise(url: string, statusCode?: number): boolean {
   try {
     const host = new URL(url).hostname;
     if (NOISE_HOSTS.some((d) => host.endsWith(d))) return true;
     if (NOISE_URL_PATTERNS.some((p) => url.includes(p))) return true;
+    if (statusCode === 404 && NOISE_404_URL_PATTERNS.some((p) => p.test(url))) return true;
     return false;
   } catch { return false; }
 }
@@ -34,7 +43,7 @@ export function attachNetworkListeners(
   viewport: Viewport,
 ): void {
   page.on('requestfailed', (req) => {
-    if (isNoise(req.url())) return;
+    if (isNoise(req.url(), undefined)) return;
     const errText = req.failure()?.errorText ?? 'unknown';
     if (errText.includes('ERR_ABORTED')) return; // request cancelled during navigation
     bugs.add({
@@ -49,7 +58,7 @@ export function attachNetworkListeners(
 
   page.on('response', (res) => {
     if (res.status() < 400) return;
-    if (isNoise(res.url())) return;
+    if (isNoise(res.url(), res.status())) return;
     const severity: Severity = res.status() >= 500 ? 'critical' : 'high';
     bugs.add({
       ruleId: `network:${res.status()}`,
