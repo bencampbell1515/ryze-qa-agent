@@ -196,16 +196,14 @@ async function main(): Promise<void> {
   );
 
   // Step 10a: Generate plain-English summaries
-  console.log('\n✍️  Generating summaries...');
   const withSummaries = client
-    ? await generateSummaries(client, finalScored)
-    : finalScored;
+    ? (console.log('\n✍️  Generating summaries...'), await generateSummaries(client, finalScored))
+    : (console.log('\n⏭️  Skipping summaries (no API key).'), finalScored);
 
   // Step 10b: Assign categories
-  console.log('\n🏷️  Assigning categories...');
   const withCategories = client
-    ? await assignCategories(client, withSummaries)
-    : withSummaries;
+    ? (console.log('\n🏷️  Assigning categories...'), await assignCategories(client, withSummaries))
+    : (console.log('\n⏭️  Skipping categories (no API key).'), withSummaries);
 
   // Step 11: Build HTML report
   const reportMeta = {
