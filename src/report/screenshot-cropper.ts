@@ -5,7 +5,7 @@ import type { ScoredBug } from '../types.js';
 
 const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
 const DISPLAY_WIDTH = 700;
-const CROP_HEIGHT = 700;
+const CROP_HEIGHT = 350;
 
 export function urlToSlug(url: string): string {
   return url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
