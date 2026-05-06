@@ -19,30 +19,27 @@ export async function runContentCheck(
 ): Promise<void> {
   const url = page.url();
 
-  // Extract visible text content, skipping script/style and aria-hidden elements
+  // Extract brand-copy text only: headings, buttons, nav, labels.
+  // Excludes review/UGC sections to avoid flagging customer names and foreign-language reviews.
   const text = await page.evaluate(() => {
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node: Node): number {
-          const parent = node.parentElement;
-          if (!parent) return NodeFilter.FILTER_REJECT;
-          const tag = parent.tagName;
-          if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
-          if (parent.getAttribute('aria-hidden') === 'true') return NodeFilter.FILTER_SKIP;
-          return NodeFilter.FILTER_ACCEPT;
-        },
-      },
-    );
-    const texts: string[] = [];
-    let node: Node | null = walker.nextNode();
-    while (node) {
-      const t = node.textContent?.trim();
-      if (t && t.length > 1) texts.push(t);
-      node = walker.nextNode();
+    const COPY_SELECTORS = 'h1, h2, h3, h4, h5, h6, button, [role="button"], label, nav a, .product__title, .product-title, [class*="product__description"] p, [class*="hero"] p';
+    const REVIEW_PATTERN = /review|testimonial|okendo|judge|loox|yotpo|stamped|spr-review/i;
+
+    function isInReviewSection(el: Element): boolean {
+      let cur: Element | null = el;
+      while (cur) {
+        if (REVIEW_PATTERN.test(cur.className + (cur.id ?? ''))) return true;
+        cur = cur.parentElement;
+      }
+      return false;
     }
-    return texts.join('\n');
+
+    const elements = Array.from(document.querySelectorAll(COPY_SELECTORS));
+    return elements
+      .filter(el => !isInReviewSection(el))
+      .map(el => el.textContent?.trim() ?? '')
+      .filter(t => t.length > 2)
+      .join('\n');
   });
 
   if (!text.trim()) return;

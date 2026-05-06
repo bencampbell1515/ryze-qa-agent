@@ -101,6 +101,6 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
     await takeScreenshot(page, slug, viewport).catch(() => {});
 
-    await page.waitForTimeout(CRAWL_DELAY_MS);
+    await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {});
   }
 });
