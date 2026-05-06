@@ -1,5 +1,31 @@
 # Fix History
 
+## Fixed (2026-05-06) — HTML/PDF report redesign; ATC selector; 503 noise; orchestrate noise bypass
+
+**Report redesign (REPORT-010):**
+- ~~`.docx` report required Word/Google Docs to view~~ — replaced with self-contained HTML file (two tabs: by severity and by category) + PDF export. All images embedded as base64 data URIs; no external dependencies at read time.
+- Added `scripts/summarise.ts`: LLM-generated 1–2 sentence plain-English summaries per finding (Sonnet for critical/high/medium, Haiku for low); falls back to `description.slice(0, 200)` on API failure.
+- Added `scripts/categorise.ts`: single Haiku call clusters all findings into category labels (e.g. "Sale Pricing", "Broken Links"); falls back to rule-prefix map if call fails.
+- Added `src/report/screenshot-cropper.ts`: three-tier fallback — element screenshot from reverify > 350px crop from full-page > full-page resize to 700px wide; all embedded as base64.
+- `scripts/reverify.ts` now captures `element.screenshot()` during re-verification for any bug with a `selector` field, stored as `bug.elementShot`.
+- `docx-builder.ts` retired (kept in repo) — no longer called by any script.
+
+**Orchestrate noise bypass (NOISE-009):**
+- ~~`scripts/orchestrate.ts` called `buildDocx` directly, bypassing the `NOISE_RULE_IDS` filter that lives in `scripts/report.ts`~~ — `revenue:no-atc`, `js:pageerror`, `console:error`, etc. were appearing in orchestrate output as Critical/High findings. Fixed by duplicating `NOISE_RULE_IDS` inside `orchestrate.ts` and filtering before dedup. Both files must stay in sync — a shared `src/noise-config.ts` would be the right long-term fix.
+
+**ATC selector (ATC-007):**
+- ~~`revenue:no-atc` firing on every product page~~ — selector regex `/add to cart|subscribe|buy now/i` didn't match the "Get Started" button that Recharge renders on RYZE product pages. Added `|get started` to the regex in `tests/checks/revenue.ts`.
+
+**Network:503 noise (NOISE-010):**
+- ~~`network:503` appearing as Critical on `/cart/update.js`~~ — Shopify's bot-defense returns 503 on cart endpoints for bots; real users are fine. Added `network:503` to `NOISE_RULE_IDS` in both `scripts/report.ts` and `scripts/orchestrate.ts`.
+
+**Key insights:**
+- `scripts/orchestrate.ts` has its own `NOISE_RULE_IDS` that must stay in sync with `scripts/report.ts` — they are separate code paths (orchestrate builds from scored bugs, report builds from raw bugs.jsonl). If you add a noise rule to one, add it to both.
+- Cloudflare O2O (Orange-to-Orange) is the bot bypass mechanism — it runs in system Chrome (`channel: 'chrome'`) and is distinct from headless-vs-headed mode. Noise levels cannot be reduced by "switching to headed" — O2O already handles that.
+- `javascript:` URIs pass through HTML entity-escaping unchanged — any URL-in-href rendering needs an explicit `https?://` scheme guard, not just `escapeHtml()`.
+- `max_tokens` for category clustering must be at least 4096 — 1500 truncates the JSON response at ~115 entries, causing `JSON.parse` to throw and falling back to rule-prefix for the entire set silently.
+- `reverify.ts` rule-prefix checks must use `axe:` not `a11y:` — the axe check module emits `ruleId: \`axe:${violation.id}\``, not `a11y:*`. A wrong prefix means the check never matches any real finding.
+
 ## Fixed (2026-05-06) — desktop crash fix; content:typo scoped to brand-copy; agentic persona architecture
 
 **Desktop browser crash (CRASH-001):**

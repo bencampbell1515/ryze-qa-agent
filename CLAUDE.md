@@ -39,7 +39,7 @@ Key directories:
 - `src/crawl/` — sitemap parser, linkinator runner
 - `src/dedupe/` — fingerprint algorithm, selector-path walker, perceptual hash
 - `src/annotate/` — sharp+SVG screenshot annotation
-- `src/report/` — docx builder (see [src/report/CLAUDE.md](src/report/CLAUDE.md))
+- `src/report/` — HTML builder, PDF exporter, screenshot cropper, styles (see [src/report/CLAUDE.md](src/report/CLAUDE.md))
 - `src/discovery/` — agentic persona runner (tools.ts, agent-loop.ts, persona-runner.ts)
 - `personas/` — persona markdown files (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician)
 - `data/` — allowlist-domains.txt, brand-dictionary.txt, bugs.jsonl
@@ -80,9 +80,10 @@ Key directories:
 - Klaviyo iframe, Gorgias chat widget, Meta Pixel, TikTok pixel, GTM
 - `.myshopify.com` requests after checkout handoff
 - Stock-out countdown timers (mask in visual diffs)
-- **Rule IDs filtered entirely in `scripts/report.ts` as bot-artifact noise:**
+- **Rule IDs filtered entirely — same list must exist in BOTH `scripts/report.ts` AND `scripts/orchestrate.ts`** (they are separate code paths):
   - `network:nav-failed` — CDN redirect blocks (formerly Edgemesh, now Cloudflare); pages load fine for real users
   - `network:429` — rate-limiting our bot
+  - `network:503` — Shopify bot-defense on `/cart/update.js`; real users unaffected
   - `revenue:no-atc` — ATC button is JS-rendered (Recharge widget), loads after our wait window
   - `js:pageerror` — ALL JS exceptions in headless Chrome are bot artifacts: Popper.js misfires without user interaction, analytics scripts blocked (Converge, Recharge), GTM-blocked jQuery; real UX breakage surfaces in axe/revenue/network checks instead
   - `console:error` — same reasoning as `js:pageerror`; every instance is third-party analytics/widget noise in bot context
@@ -101,6 +102,7 @@ Key directories:
 
 ## Key gotchas
 
+- **Cloudflare O2O is the bot bypass — not headless/headed mode** — The project uses Cloudflare Orange-to-Orange (O2O), which allows trusted Chrome instances through via `channel: 'chrome'` (system Chrome). Switching to "headed" mode does not change noise levels; O2O already handles bot detection. Do not conflate these two mechanisms.
 - **Cloudflare blocks Node.js `fetch` for sitemaps** — TLS fingerprint discrimination (same mechanism as prior Edgemesh setup) causes fetch failure. Fix: shell out to `curl` via `execFile`. The `/em-cgi/` noise patterns can stay — they're harmless leftovers from the Edgemesh era.
 - **shop.ryzesuperfoods.com sitemap blocked by Cloudflare** — only www.ryzesuperfoods.com's 228 URLs are in scope. shop.ryzesuperfoods.com has been unreachable via bot since Cloudflare migration; flag as ongoing advisory.
 - **Desktop browser crash after ~4h** — Cloudflare closes the page mid-run on long sessions. `page.waitForTimeout()` throws on a closed page. Always chain `.catch(() => {})` on any `waitForTimeout` call inside the URL loop.
@@ -113,6 +115,11 @@ Key directories:
 - **Hidden modals render their broken images at 0×0** — a 404 inside a `display:none` modal has no visual impact; DevTools "scroll into view" does nothing because the element has no size. Use Playwright to force-open the modal and inspect.
 - **Multi-run warning fires on long single runs** — `scripts/report.ts` warns when `bugs.jsonl` timestamps span >2h. A normal 3-viewport audit takes 3–5 hours, so this warning will fire even on a clean single run. Safe to ignore after `npm run clean`; only meaningful if you forgot to clean between runs.
 - **Perceptual hash (dHash) pipeline is wired but dormant** — `BugInstance` has `dHash?`, `deduplicateBugs()` runs a fuzzy second pass via `shouldMerge()`, but no check module currently calls `computeHash()` to populate `dHash`. The fuzzy merge will have no effect until `visual.ts` or `a11y.ts` starts populating it.
+- **`orchestrate.ts` NOISE_RULE_IDS must mirror `report.ts`** — orchestrate calls `buildHtml` directly without going through `report.ts`, so it has its own copy of the noise filter. If you add or remove a rule ID in one file, do the same in the other. A shared `src/noise-config.ts` would be the right fix but isn't implemented yet.
+- **ATC selector must include "Get Started"** — Recharge renders "Get Started" (not "Add to Cart") on RYZE subscription products. The selector regex in `tests/checks/revenue.ts` is `/add to cart|subscribe|buy now|get started/i`. Don't remove `get started`.
+- **`reverify.ts` rule prefix is `axe:` not `a11y:`** — the axe check module emits `ruleId: \`axe:${violation.id}\``. Any condition checking `ruleId.startsWith('a11y:')` will silently match nothing.
+- **HTML report `href` URLs need scheme guard, not just escaping** — `escapeHtml()` does not block `javascript:` URIs. Use `safeSrc()` in `html-builder.ts` which rejects anything not matching `https?://`. Do not remove this guard.
+- **Category clustering `max_tokens` must be ≥ 4096** — `scripts/categorise.ts` sends all findings in one Haiku call. At 1500 tokens the response is truncated at ~115 entries, `JSON.parse` throws, and all bugs silently fall back to rule-prefix categories.
 
 ---
 
