@@ -37,7 +37,7 @@ export async function assignCategories(
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: buildCategoryPrompt(findings) }],
     });
     const text = (response.content[0] as Anthropic.TextBlock).text.trim();

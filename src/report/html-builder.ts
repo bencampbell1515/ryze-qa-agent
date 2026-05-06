@@ -15,12 +15,14 @@ export function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+const safeSrc = (u: string): string => (/^https?:\/\//i.test(u) ? u : '#');
+
 export function urlListHtml(urls: string[]): string {
   const visible = urls.slice(0, 5);
   const overflow = urls.slice(5);
 
   const renderLinks = (list: string[]) =>
-    list.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`).join('\n');
+    list.map((u) => `<a href="${escapeHtml(safeSrc(u))}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`).join('\n');
 
   if (overflow.length === 0) {
     return `<div class="url-list">${renderLinks(visible)}</div>`;
