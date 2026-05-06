@@ -9,6 +9,12 @@
     }
   ],
   "dictionaries": ["en_US", "ryze-brand"],
+  "minWordLength": 5,
+  "ignoreRegExpList": [
+    "\\b[A-Z][a-z]+ [A-Z]\\.",
+    "^[A-Z][a-zA-Z]+ [A-Z][a-zA-Z]+$",
+    "[áéíóúñüÁÉÍÓÚÑÜ]"
+  ],
   "ignorePaths": [
     "node_modules",
     "output",
