@@ -1,6 +1,6 @@
 # Ryze QA Agent
 
-Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.com) and [shop.ryzesuperfoods.com](https://shop.ryzesuperfoods.com). Crawls the live site, finds bugs across seven check modules, validates findings with Claude AI, and produces a priority-ranked `.docx` audit report.
+Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.com) and [shop.ryzesuperfoods.com](https://shop.ryzesuperfoods.com). Crawls the live site, finds bugs across seven check modules, validates findings with Claude AI, and produces a self-contained HTML report with a PDF export.
 
 ## What it does
 
@@ -9,7 +9,7 @@ Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.
 3. **Validates** each finding using Claude AI agents — confirming real bugs and filtering false positives
 4. **Discovers** additional human-observable bugs using four AI personas with distinct worldviews (revenue, UX, brand, technical)
 5. **Scores** every finding by business impact — revenue issues first, then UX, then UI
-6. **Reports** a priority-ranked `.docx` with an executive summary and evidence screenshots
+6. **Reports** a self-contained HTML report (two tabs: by severity and by category) with LLM-generated plain-English summaries, cropped screenshots, and a print-ready PDF export
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm install
 npm run test:crawl        # discover URLs → output/url-list.json
 npm run test:audit        # run all checks → data/bugs.jsonl  (~3–5 hours)
-npm run orchestrate       # validate + discover + score + report → output/audit-report-<date>.docx
+npm run orchestrate       # validate + discover + score + report → output/audit-report-<date>.html + .pdf
 ```
 
 Or run everything in one command (takes 4–6 hours):
@@ -48,7 +48,7 @@ sitemap.xml → URL list → Playwright (3 viewports) → bugs.jsonl
                                                          │
                                                    reverify.ts (Playwright)
                                                          │
-                                                    report.ts → audit-report.docx
+                                                    report.ts → audit-report.html + .pdf
 ```
 
 ## Persona system
@@ -117,7 +117,7 @@ Fingerprint IDs appear in `data/scored-bugs.json` and in the report footer for e
 | `npm run validate` | Claude validation pass on bugs.jsonl |
 | `npm run discover` | Claude persona discovery pass |
 | `npm run orchestrate` | validate + discover + score + reverify + report |
-| `npm run report` | Dedupe + build .docx from bugs.jsonl (legacy, no scoring) |
+| `npm run report` | Dedupe + build HTML + PDF from bugs.jsonl (no scoring) |
 | `npm run full-audit:v2` | clean + crawl + audit + orchestrate |
 | `npm run clean` | Clear bugs.jsonl and intermediate data files |
 | `npm run dismiss` | Add a fingerprint to the dismissal list |
