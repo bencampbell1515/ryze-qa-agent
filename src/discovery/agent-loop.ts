@@ -15,6 +15,7 @@ export interface SessionOptions {
   screenshotsDir: string;
   discoveriesPath: string;
   sessionBudget?: number;
+  model?: string;
 }
 
 export interface SessionResult {
@@ -42,7 +43,7 @@ export async function runSession(opts: SessionOptions): Promise<SessionResult> {
   const {
     client, page, personaSystemPrompt, personaName,
     targetUrls, previousFindingsSummary, screenshotsDir,
-    discoveriesPath, sessionBudget = 20,
+    discoveriesPath, sessionBudget = 20, model,
   } = opts;
 
   const tools = createTools(page, { screenshotsDir, discoveriesPath, personaName });
@@ -62,7 +63,7 @@ export async function runSession(opts: SessionOptions): Promise<SessionResult> {
 
   while (toolCallCount < MAX_TOOL_CALLS) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: model ?? 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: personaSystemPrompt,
       tools: tools.definitions,
