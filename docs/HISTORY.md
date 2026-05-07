@@ -1,5 +1,20 @@
 # Fix History
 
+## Fixed (2026-05-07, session 2) — persona context overflow; five-layer hardening
+
+- ~~Previous screenshot-only prune was insufficient~~ — 3 of 4 personas (revenue-hawk, skeptical-first-timer, brand-purist) still hit the 200k token limit in the live audit run. forensic-technician was the only persona to complete. Root cause: `get_dom` was returning up to 50k chars (~12.5k tokens) per call and those results were never evicted from the messages array. `MAX_TOOL_CALLS = 150` allowed up to 150 full payloads to accumulate.
+- Added `pruneOldToolResults()` to `src/discovery/agent-loop.ts` — evicts tool result content from all turns older than `MAX_TURNS_IN_CONTEXT = 12`. Only the last 12 tool call/result pairs stay in full; older ones become `[evicted]`.
+- `get_dom` cap: 50,000 → 15,000 chars. 15k covers `<head>` + first fold of body (price, ATC, hero) without the tail of irrelevant Shopify boilerplate.
+- `get_network_log` entries: 50 → 15. The model only needs recent requests to spot patterns.
+- `MAX_TOOL_CALLS`: 150 → 50. With SESSION_BUDGET = 7, that's 7 tool calls/URL — enough for navigate + screenshot + get_dom + submit_finding + done.
+- Added proactive token check: after each API response, if `response.usage.input_tokens > 150_000`, break the session loop with a warning. Sessions end cleanly with findings intact instead of crashing on 400.
+
+**Key insights:**
+- The previous fix treated one symptom (screenshot images). The actual driver was `get_dom` results — 12.5k tokens each, called repeatedly, never pruned. Any agentic loop using `get_dom` without a selector on a Shopify page needs a hard output cap AND eviction.
+- Pruning tool results does not lose information: the model already acted on old results when they were returned. Its understanding is encoded in the subsequent assistant messages, which are kept. Only the raw payload is evicted.
+- Worst-case token math with all five fixes: ~68k tokens (34% of 200k limit). The proactive check at 150k is the permanent safety net regardless of future prompt or tool changes.
+- `MAX_TOOL_CALLS = 50` does not reduce finding quality — sessions that burned 110-121 tool calls were not finding proportionally more bugs. Haiku was over-exploring.
+
 ## Fixed (2026-05-07) — persona context overflow; updated /full-audit slash command
 
 - ~~brand-purist and forensic-technician hitting 200k token limit~~ — root cause was screenshot tool results embedding full base64 image data (~6k tokens each) in the messages array. Images persist across all subsequent API calls within the session; a ~40-tool-call session with 15 screenshots = 90k+ tokens of stale image data. Fix: `pruneOldScreenshotImages()` in `src/discovery/agent-loop.ts` evicts base64 from all but the 2 most recent screenshots before each API call. Also capped `buildFindingsSummary()` at 4,000 chars in `persona-runner.ts`.

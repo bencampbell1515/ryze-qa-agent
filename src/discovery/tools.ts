@@ -111,14 +111,14 @@ export function createTools(
         return { html };
       }
       const html = await page.content();
-      return { html: html.slice(0, 50_000) };
+      return { html: html.slice(0, 15_000) };
     } catch (err) {
       return { error: (err as Error).message };
     }
   }
 
   async function get_network_log(): Promise<ToolCallResult> {
-    return { requests: networkLog.slice(-50) };
+    return { requests: networkLog.slice(-15) };
   }
 
   async function wait_for({ selector, timeout }: { selector: string; timeout?: number }): Promise<ToolCallResult> {
