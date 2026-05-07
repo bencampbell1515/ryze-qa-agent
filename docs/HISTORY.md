@@ -1,5 +1,25 @@
 # Fix History
 
+## Changed (2026-05-07) — removed a11y + content checks; fixed network:4xx dedup; added CF challenge skip
+
+- ~~`runA11yCheck` generating axe:* noise~~ — removed import and call from `tests/crawl.spec.ts`. All WCAG, color contrast, image-alt, ARIA, scrollable-region findings eliminated. axe-core was running 245 URLs × 3 viewports = 735 times per audit (~30–60 min overhead).
+- ~~`runContentCheck` generating content:typo false positives~~ — removed import and call. cspell was flagging fragments of compound product/ingredient names at ~100% false positive rate.
+- ~~Cloudflare challenge pages being audited~~ — added body text check after `page.goto()`; skips URL if "Your connection needs to be verified" or "Verifying you are human" detected.
+- ~~`network:400` and `network:404` on same Liquid error path not grouping~~ — `computeFingerprint()` normalizes any `network:4\d\d` ruleId to `network:4xx` before hashing. Same broken path now collapses regardless of HTTP status code returned.
+
+**Key insights:**
+- Removing a11y + content checks should cut raw bug count from ~49k to ~5–10k, reducing the validate step from ~60 min to ~10 min and total audit time from ~4.2h to under 2h.
+- Persona findings are the highest-value output: revenue-hawk (the only persona to complete this run) found evergreen countdown timers stuck at 00:00:00, discount math mismatches, and cart upsell price discrepancies — all directly revenue-impacting and impossible for Playwright to detect.
+- brand-purist and forensic-technician hit the 200k token context limit in batch 2 (they have 230–242 URLs each). Prior-findings summary accumulates too fast. Need to truncate/summarize it before it exceeds ~150k tokens. Until fixed, only revenue-hawk reliably completes.
+- The Liquid template error in `sections/callout-card-v2.liquid` line 147 is a confirmed real bug affecting 65 pages — it renders the unguarded `| url` filter output as a network request, returning HTTP 400 or 404 depending on how Shopify parses the malformed URL.
+
+## Audited (2026-05-07) — first full audit with personas; 312 findings
+
+**Run stats:** 245 URLs, Playwright 4.2h, orchestrate ~75 min (dominated by validate at 49k raw entries).
+**Results:** 2 Critical, 286 High, 5 Medium, 19 Low → 312 unique (pre-cleanup; 286 High will drop dramatically after a11y removal).
+**Persona failures:** skeptical-first-timer (screenshot timeout), brand-purist + forensic-technician (context overflow >200k tokens). Only revenue-hawk completed.
+**Top findings:** Liquid template error on 65 pages (network:4xx); evergreen countdown timer on multiple PDPs; discount math wrong on several products; cart upsell math mismatch; 108 pages missing meta description.
+
 ## Changed (2026-05-06) — all personas switched to Haiku; SESSION_BUDGET 20→7; prompts hardened for smaller model
 
 **Cost incident:** `skeptical-first-timer` on Sonnet 4.6 made 83 tool calls for 20 URLs and burned ~$7 in under 2 minutes. A full 4-persona × 245-URL run on Sonnet would have cost ~$80–150. Run killed manually.

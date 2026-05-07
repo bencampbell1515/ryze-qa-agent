@@ -2,13 +2,11 @@ import { test, expect } from './fixtures/bug-collector.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { discoverUrls } from '../src/crawl/sitemap.js';
-import { runA11yCheck } from './checks/a11y.js';
 import { attachConsoleListeners } from './checks/console.js';
 import { attachNetworkListeners } from './checks/network.js';
 import { takeScreenshot, triggerLazyLoad } from './checks/visual.js';
 import { runSeoCheck } from './checks/seo.js';
 import { runRevenueCheck, resetAtcCount } from './checks/revenue.js';
-import { runContentCheck } from './checks/content.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -85,18 +83,22 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
         message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport });
       return false;
     });
-    if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS); continue; }
+    if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {}); continue; }
+
+    // Skip Cloudflare challenge pages — bot was blocked, no real content to check
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    if (bodyText.includes('Your connection needs to be verified') || bodyText.includes('Verifying you are human')) {
+      await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {});
+      continue;
+    }
 
     await triggerLazyLoad(page);
 
-    await runA11yCheck(page, bugs, viewport);
     await runSeoCheck(page, bugs, viewport);
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport);
     }
-
-    await runContentCheck(page, bugs, viewport);
 
     const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
     await takeScreenshot(page, slug, viewport).catch(() => {});

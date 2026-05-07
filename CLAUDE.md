@@ -84,15 +84,19 @@ Key directories:
 | Level | Examples |
 |-------|---------|
 | Critical | Broken ATC, checkout handoff fails, price=NaN/$0 |
-| High | WCAG 2.1 A violations, broken internal links, broken hero images, missing canonical/JSON-LD on PDP, `network:404` on first-party assets |
-| Medium | WCAG 2.1 AA violations, broken external links, layout shift >0.25, Lighthouse perf <50, missing meta descriptions |
-| Low | Typos, contrast 4.0–4.4, broken third-party tracking pixel |
+| High | Broken internal links, broken hero images, missing canonical/JSON-LD on PDP, `network:4xx` on first-party assets, deceptive UI (fake timers, wrong discount math) |
+| Medium | Broken external links, layout shift >0.25, Lighthouse perf <50, missing meta descriptions |
+| Low | Broken third-party tracking pixel |
 
 ---
 
 ## Known noise — exclude from scans
 
 Third-party widgets (Klaviyo, Gorgias, Meta Pixel, TikTok Pixel, GTM), `.myshopify.com` requests after checkout handoff, and stock-out countdown timers are excluded at check-time.
+
+**Checks permanently disabled (too noisy, near-zero signal):**
+- `runA11yCheck` — all `axe:*` rules (color contrast, image-alt, ARIA, scrollable-region, etc.) removed from `tests/crawl.spec.ts`. WCAG findings are no longer reported.
+- `runContentCheck` — all `content:typo` rules removed. cspell was generating ~100% false positives by flagging fragments of compound words, product names, and ingredients.
 
 Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/CLAUDE.md](scripts/CLAUDE.md).
 
@@ -112,11 +116,8 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`network:failed` ≠ missing resource** — `network:failed` means CDN/bot-detection dropped the connection; `network:404` means the server confirmed the resource doesn't exist. Only `network:404` is actionable.
 - **`js:pageerror` in headless is always noise** — Popper.js, analytics scripts, and jQuery (loaded via blocked GTM) all throw in bot context; never surfaces real user-facing breakage.
 - **Hidden modals render their broken images at 0×0** — a 404 inside a `display:none` modal has no visual impact. Use Playwright to force-open the modal and inspect.
-- **Perceptual hash (dHash) pipeline is wired but dormant** — `BugInstance` has `dHash?`, `deduplicateBugs()` runs a fuzzy second pass via `shouldMerge()`, but no check module currently calls `computeHash()` to populate `dHash`. The fuzzy merge will have no effect until `visual.ts` or `a11y.ts` starts populating it.
-- **Okendo review widget excluded from axe (AXE-001, FIXED)** — `EXCLUDED_SELECTORS` in `tests/checks/a11y.ts` now includes `[data-okendo-initialized]`, `[class*="okeReviews"]`, and the third Okendo selector. False WCAG violations from the review widget are no longer reported.
-- **No Spanish dictionary in cspell (SPELL-002, FIXED)** — `@cspell/dict-es-es` is now installed and loaded via `import` in `cspell.json`. Spanish-language content blocks and testimonials no longer generate false `content:typo` findings.
+- **Perceptual hash (dHash) pipeline is wired but dormant** — `BugInstance` has `dHash?`, `deduplicateBugs()` runs a fuzzy second pass via `shouldMerge()`, but no check module currently calls `computeHash()` to populate `dHash`. The fuzzy merge will have no effect until `visual.ts` starts populating it.
 - **`validated: true` default when `ANTHROPIC_API_KEY` is absent (VALID-001, FIXED)** — The fallback in `orchestrate.ts` is now `?? false`, and a `[WARN]` message fires at startup when the key is absent. Bugs are no longer falsely marked as AI-validated when validation never ran. API key goes in `.env` at project root (dotenv is installed and wired into all LLM scripts).
-- **`axe:moderate` violations map to medium severity (AXE-002, NOT A BUG)** — `moderate` impact falls through the `else` branch in `runA11yCheck` and is correctly mapped to `'medium'` severity. No `severityMap` entry is needed; the existing logic handles it. No fix required.
 - **`reverify` is no longer part of the pipeline** — removed from `orchestrate.ts`. Live persona browsing during the audit replaces its purpose. The `reverify.ts` script still exists but is not called by any pipeline step.
 - **`scripts/run-audit.ts` handles parallel launch + signal forwarding** — spawns `test:audit` and `discover:agentic` simultaneously. Handles Ctrl-C by forwarding SIGINT to both children (otherwise they run for the rest of the session orphaned). Persona failure is non-fatal; Playwright failure aborts the pipeline.
 - **`personas/dr-marcus-chen.md` exists but is NOT wired in** — only four personas run: revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician. Marcus Chen was written during an earlier design iteration and never added to `PERSONA_BATCHES` in `discover-agentic.ts`.
@@ -125,7 +126,12 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`SESSION_BUDGET` reduced from 20 → 7 for Haiku** — Haiku's structured output (JSON schema adherence) degrades as context fills within a session. 7 URLs/session keeps context lean; total URL coverage is unchanged across multiple sessions. If you raise this, watch for malformed `submit_finding` calls in later turns of each session.
 - **Stuck-loop detection in `agent-loop.ts`** — after 3 consecutive identical tool calls (same tool name + same args), a LOOP GUARD reflection message is injected as a user turn and the count resets. The loop does NOT break — the agent is given a chance to recover. This prevents infinite loops on slow-loading elements or stubborn selectors.
 - **Persona prompts hardened for Haiku quality** — all 4 persona files now include: numbered per-URL checklists (replacing abstract mandates), ARQ pre-answer scratchpad before `submit_finding` (What did I observe? / Is this a defect? / What severity?), domain exclusion lists (each persona states what it does NOT flag), explicit termination condition, and 2 inline few-shot examples. `brand-purist.md` includes injected brand facts (product name table, on/off-brand tone examples) since Haiku has no implicit brand knowledge.
-- **Soft hyphens (U+00AD) split words in cspell (SPELL-001, FIXED)** — HTML soft hyphens that render invisibly to users appear as word-boundary characters to cspell, causing false typo reports on valid words. `tests/checks/content.ts` now strips U+00AD before writing the tmpfile.
+- **Persona context overflow kills brand-purist + forensic-technician in batch 2 (UNFIXED)** — both hit `400: prompt is too long: >200k tokens` during the 2026-05-07 run. Root cause: the prior-findings summary injected between sessions accumulates too fast across 230–242 URLs. Fix needed: truncate or summarize the prior-findings block before it exceeds ~150k tokens. Until fixed, only revenue-hawk reliably completes.
+- **Cloudflare challenge pages are now detected and skipped** — after `page.goto()`, if `body` contains "Your connection needs to be verified" or "Verifying you are human", the URL is skipped. Previously the bot ran all checks against the CF challenge page and took screenshots of it.
+- **`network:4xx` fingerprint groups 400 and 404 on the same path** — `computeFingerprint()` normalizes any `network:4\d\d` ruleId to `network:4xx` before hashing, so a Liquid template error returning HTTP 400 on one page and HTTP 404 on another with the same broken path collapses into one bug record.
+- **Liquid template error in `sections/callout-card-v2.liquid` line 147 (KNOWN REAL BUG)** — produces `Liquid error (sections/callout-card-v2 line 147): invalid url input` as a URL, causing HTTP 400/404 on 65 product pages. Fix: add a nil guard before the `| url` filter. Affects bundle pages (404) and individual product pages including Mushroom Matcha, Mushroom Chicory variants (400).
+- **Validate step is the orchestrate bottleneck** — `scripts/validate.ts` calls Haiku once per raw bug entry at `pLimit(20)`. With 49k raw entries (pre a11y/content removal) this took ~60 min. After removing a11y + content checks, raw count should drop to ~5–10k, reducing validate to ~10 min.
+- **Persona findings are higher-value than Playwright findings** — revenue-hawk found: evergreen countdown timer stuck at `00:00:00` across PDPs (deceptive urgency), discount math mismatches (e.g. "17% off $30" shows $25 not $24.90), cart upsell claiming "25% OFF" but showing 38% actual discount. These directly impact revenue and trust. Playwright's strength is systematic network/SEO coverage, not business logic.
 
 ---
 

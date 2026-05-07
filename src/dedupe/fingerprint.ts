@@ -16,8 +16,9 @@ export function normalizeMessage(msg: string, ruleId?: string): string {
   let normalized = msg
     .replace(/ — Fix (?:any|all|one) of the following:[\s\S]*/i, '');
 
-  if (ruleId === 'network:404') {
-    // Keep the URL path so different broken resources produce different fingerprints
+  if (ruleId && /^network:4\d\d$/.test(ruleId)) {
+    // Keep the URL path so different broken resources produce different fingerprints,
+    // but strip the host so 400 and 404 on the same path collapse into one record.
     normalized = normalized.replace(/https?:\/\/[^/\s,)'"]+/g, '');
   } else {
     normalized = normalized.replace(/https?:\/\/[^\s,)'"]+/g, 'URL');
@@ -43,10 +44,12 @@ export function computeFingerprint(
   sectionAnchor: string,
   dHash?: string,
 ): string {
+  // Collapse all network:4xx variants so 400 and 404 on the same path group together
+  const normalizedRuleId = /^network:4\d\d$/.test(ruleId) ? 'network:4xx' : ruleId;
   const normalized = normalizeMessage(message, ruleId);
   // DEDUP-003: dHash is a 64-char binary string ('0'/'1'), use it in full
   const hashPart = dHash ? dHash : 'nohash';
-  const input = `${ruleId}|${normalized}|${sectionAnchor}|${hashPart}`;
+  const input = `${normalizedRuleId}|${normalized}|${sectionAnchor}|${hashPart}`;
   return createHash('sha1').update(input).digest('hex');
 }
 
