@@ -31,9 +31,14 @@ export async function takeScreenshot(
 
   const maskLocators = VOLATILE_SELECTORS.map((sel) => page.locator(sel));
 
+  // Pages taller than ~25k px produce 40MB+ screenshots that OOM-crash Chrome.
+  // Fall back to viewport-height capture for those to keep the browser alive.
+  const scrollHeight = await page.evaluate(() => document.body.scrollHeight).catch(() => 0);
+  const useFullPage = scrollHeight > 0 && scrollHeight <= 25000;
+
   await page.screenshot({
     path: join(SCREENSHOTS_DIR, `${snapshotName}-${viewport}.png`),
-    fullPage: true,
+    fullPage: useFullPage,
     mask: maskLocators,
     maskColor: '#FF00FF',
   });

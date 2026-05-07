@@ -30,7 +30,8 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 ## Gotchas
 
 - **`toHaveScreenshot()` is banned** — creates baselines on first run, marks test FAILED on any site change. Use `page.screenshot()` with direct file save instead. If stale baselines cause errors, delete `tests/crawl.spec.ts-snapshots/`.
-- **ATC button takes 10–15s** — Recharge subscription widget is JS-rendered; wait timeout is 15s. `revenue:no-atc` is noise-filtered in reports (too noisy).
+- **ATC button takes 10–15s** — Recharge subscription widget is JS-rendered; wait timeout is 15s. `revenue:no-atc` is noise-filtered in reports (too noisy). Do not reduce the wait below 15s.
+- **ATC selector must include "Get Started"** — Recharge renders "Get Started" (not "Add to Cart") on RYZE subscription products. The selector regex in `checks/revenue.ts` is `/add to cart|subscribe|buy now|get started/i`. Do not remove `get started`.
 - **Shopify lazy-loads images** — scroll to bottom + back before screenshots to trigger IntersectionObserver.
 - **Cloudflare closes long-running sessions** — After ~4h the browser page gets closed mid-run (`ERR_TOO_MANY_REDIRECTS` or silent close). All `page.waitForTimeout()` calls inside the URL loop must have `.catch(() => {})` — otherwise the test crashes and the last viewport's bugs are lost. Previously Edgemesh blocked `/pages/`; those now load fine under Cloudflare.
 - **ATC flow: always capture `productPageUrl = page.url()` before clicking** — after `atc.click()`, the page may navigate (Recharge redirect). `cartUrl` must be built from the saved URL, not `page.url()` post-click. After `runCartChecks`, navigate back: `await page.goto(productPageUrl)` so `runContentCheck` and `takeScreenshot` run against the product, not `/cart`.

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
 import pLimit from 'p-limit';
 import type { ScoredBug, Severity } from '../src/types.js';

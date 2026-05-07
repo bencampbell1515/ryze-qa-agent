@@ -1,4 +1,5 @@
 // scripts/validate.ts
+import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';

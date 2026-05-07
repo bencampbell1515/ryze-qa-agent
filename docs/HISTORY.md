@@ -1,5 +1,14 @@
 # Fix History
 
+## Fixed (2026-05-07) — persona context overflow; updated /full-audit slash command
+
+- ~~brand-purist and forensic-technician hitting 200k token limit~~ — root cause was screenshot tool results embedding full base64 image data (~6k tokens each) in the messages array. Images persist across all subsequent API calls within the session; a ~40-tool-call session with 15 screenshots = 90k+ tokens of stale image data. Fix: `pruneOldScreenshotImages()` in `src/discovery/agent-loop.ts` evicts base64 from all but the 2 most recent screenshots before each API call. Also capped `buildFindingsSummary()` at 4,000 chars in `persona-runner.ts`.
+- ~~`/full-audit` slash command was outdated~~ — rewritten to reflect current pipeline: single `npm run full-audit` command, background logging to `/tmp/qa-audit.log`, active vs disabled checks, persona details, and what to watch for during monitoring.
+
+**Key insights:**
+- Screenshot base64 in Anthropic messages is ~6k tokens per image and accumulates silently. Any agentic loop that takes screenshots must prune old images or context will overflow within a single long session. The model doesn't need to re-see images it already acted on.
+- The fix keeps the 2 most recent images in context so the persona can still reason about what it just saw — only evicts images that are no longer the focus of the current turn.
+
 ## Changed (2026-05-07) — removed a11y + content checks; fixed network:4xx dedup; added CF challenge skip
 
 - ~~`runA11yCheck` generating axe:* noise~~ — removed import and call from `tests/crawl.spec.ts`. All WCAG, color contrast, image-alt, ARIA, scrollable-region findings eliminated. axe-core was running 245 URLs × 3 viewports = 735 times per audit (~30–60 min overhead).
