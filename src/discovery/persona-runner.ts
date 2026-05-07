@@ -30,6 +30,10 @@ const PERSONA_MODEL: Record<string, string> = {
   'forensic-technician':   'claude-haiku-4-5-20251001',
 };
 
+// Hard cap: prior-findings injected into each session's first user message.
+// Keeps cross-session summary well under the 200k token limit.
+const MAX_SUMMARY_CHARS = 4_000;
+
 function buildFindingsSummary(discoveriesPath: string, personaName: string): string {
   if (!existsSync(discoveriesPath)) return '';
   const lines = readFileSync(discoveriesPath, 'utf8').split('\n').filter(Boolean);
@@ -37,7 +41,12 @@ function buildFindingsSummary(discoveriesPath: string, personaName: string): str
     .map(l => JSON.parse(l) as DiscoveryFinding)
     .filter(f => f.persona === personaName);
   if (findings.length === 0) return '';
-  return findings.map(f => `[${f.ruleId}] ${f.url} — ${f.claim}`).join('\n');
+  const full = findings.map(f => `[${f.ruleId}] ${f.url} — ${f.claim}`).join('\n');
+  if (full.length <= MAX_SUMMARY_CHARS) return full;
+  // Keep the most recent findings (tail) so the persona doesn't re-report them
+  const truncated = full.slice(-MAX_SUMMARY_CHARS);
+  const firstNewline = truncated.indexOf('\n');
+  return '...(earlier findings omitted)\n' + (firstNewline >= 0 ? truncated.slice(firstNewline + 1) : truncated);
 }
 
 export async function runPersona(opts: {

@@ -4,6 +4,9 @@ import { type Page } from '@playwright/test';
 import { createTools } from './tools.js';
 
 const MAX_TOOL_CALLS = 150;
+// Keep only the N most recent screenshot images in context. Older ones are
+// replaced with a text placeholder — the model already saw them when taken.
+const MAX_IMAGES_IN_CONTEXT = 2;
 
 export interface SessionOptions {
   client: Anthropic;
@@ -21,6 +24,39 @@ export interface SessionOptions {
 export interface SessionResult {
   visitedUrls: string[];
   toolCallCount: number;
+}
+
+/**
+ * Walk messages in reverse and strip base64 image data from screenshot tool
+ * results, keeping only the most recent MAX_IMAGES_IN_CONTEXT images.
+ * The model already processed older images when they were returned; retaining
+ * their base64 payload on every subsequent API call burns ~6k tokens each.
+ */
+function pruneOldScreenshotImages(messages: Anthropic.MessageParam[]): void {
+  let imagesKept = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if ((block as Anthropic.ToolResultBlockParam).type !== 'tool_result') continue;
+      const tr = block as Anthropic.ToolResultBlockParam;
+      if (!Array.isArray(tr.content)) continue;
+      const hasImage = tr.content.some(c => (c as { type: string }).type === 'image');
+      if (!hasImage) continue;
+      if (imagesKept < MAX_IMAGES_IN_CONTEXT) {
+        imagesKept++;
+      } else {
+        // Replace image blocks with a lightweight text placeholder
+        tr.content = tr.content.filter(c => (c as { type: string }).type !== 'image');
+        const textBlock = tr.content.find(c => (c as { type: string }).type === 'text') as
+          | { type: 'text'; text: string }
+          | undefined;
+        if (textBlock) {
+          textBlock.text = textBlock.text.replace(/^Screenshot saved to /, '[screenshot evicted from context] ');
+        }
+      }
+    }
+  }
 }
 
 function formatToolResult(
@@ -64,6 +100,7 @@ export async function runSession(opts: SessionOptions): Promise<SessionResult> {
   let consecutiveCount = 0;
 
   while (toolCallCount < MAX_TOOL_CALLS) {
+    pruneOldScreenshotImages(messages);
     const response = await client.messages.create({
       model: model ?? 'claude-sonnet-4-6',
       max_tokens: 4096,
