@@ -7,6 +7,7 @@ import { attachNetworkListeners } from './checks/network.js';
 import { takeScreenshot, triggerLazyLoad } from './checks/visual.js';
 import { runSeoCheck } from './checks/seo.js';
 import { runRevenueCheck, resetAtcCount } from './checks/revenue.js';
+import { runImageCheck } from './checks/image.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -95,6 +96,7 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     await triggerLazyLoad(page);
 
     await runSeoCheck(page, bugs, viewport);
+    await runImageCheck(page, bugs, viewport);
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport);

@@ -16,6 +16,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 | discover-agentic.ts | Runs 4 agentic personas (2 concurrent) via Claude tool_use |
 | validate.ts | Validates bugs.jsonl entries against live pages |
 | dismiss.ts | Marks findings as dismissed; excluded from future reports |
+| probe-image-404.ts | Ad-hoc debug script: load any URL, capture CDP `Network.requestWillBeSent` initiator for the broken Replo `cdn/shop/files/?v=…` pattern, walk the live DOM to find the offending element, and run `runImageCheck` against the page. Usage: `npx tsx scripts/probe-image-404.ts [url]`. |
 
 ## Known noise — rule IDs, hosts, and URL patterns
 

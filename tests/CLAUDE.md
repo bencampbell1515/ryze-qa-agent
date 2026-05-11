@@ -11,6 +11,7 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 | checks/a11y.ts | axe-core WCAG violations |
 | checks/console.ts | JS console errors/warnings |
 | checks/content.ts | Typos via cspell, broken images |
+| checks/image.ts | Visible `<img src="">`, `<img>` with `naturalWidth === 0`, broken Replo `<picture>` srcset templates |
 | checks/network.ts | Nav failures, 4xx/5xx, 429 rate limits |
 | checks/revenue.ts | ATC → cart subtotal → checkout button enabled (stop before clicking) |
 | checks/seo.ts | Canonical, JSON-LD, meta description presence |
@@ -39,3 +40,4 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 - **`getSectionAnchor()` runs via `page.evaluate()`** — the function uses browser DOM APIs and is serialized + sent to the browser context by Playwright. It has no captured closure variables so serialization is safe. Returns `'document'` as fallback if the element isn't found.
 - **`content:typo` scoped to brand-copy only** — the check uses a curated selector list (`h1-h6`, `button`, `nav a`, `.product__title`, `[class*="product__description"] p`, `[class*="hero"] p`) and excludes any ancestor matching a review-section pattern (Okendo, Yotpo, Loox, etc.). Do NOT expand to `body` or `*` — review text, customer names, and foreign-language UGC cause a noise storm (verified: 20k raw bugs run 1, 10k run 2 before fix). `data/brand-dictionary.txt` holds ~100 wellness/supplement/brand terms; add product-specific vocabulary there before a new run.
 - **`cspell.json` tuning** — `minWordLength: 5` prevents short words from triggering; `ignoreRegExpList` covers accented characters so Spanish words without diacritics (e.g., "gracias") are not flagged.
+- **`image.ts` is the only DOM-walk check on every URL** — runs after `runSeoCheck` in `crawl.spec.ts`. It deliberately uses string-form `page.evaluate(\`(function(){...})()\`)` instead of arrow-function form because tsx-transpiled closures inject `__name` helpers that don't exist in the browser context (`ReferenceError: __name is not defined`). If you add another DOM-walk check, use the same string form. De-dupes within `<picture>` so three broken `<source>` entries inside one element produce one bug, not three.
