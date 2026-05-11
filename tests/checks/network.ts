@@ -25,6 +25,11 @@ const NOISE_404_URL_PATTERNS = [
   /\/em-js\//,
   /cdn\.shopify\.com\/s\/files\/.*\/t\/(?!2676\/)[0-9]+\//,
   /\/t\?event=/,
+  // Liquid template errors render the error string as a URL (e.g.
+  // /products/Liquid%20error%20(sections/callout-card%20line%2089):%20invalid%20url%20input).
+  // These are known theme bugs tracked separately; suppress so they don't
+  // dominate the 404 report. Matches both raw and URL-encoded forms.
+  /Liquid(\s|%20|\+)error/i,
 ];
 
 function isNoise(url: string, statusCode?: number): boolean {

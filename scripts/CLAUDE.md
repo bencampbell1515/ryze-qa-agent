@@ -39,6 +39,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 ### Noise 404 URL patterns (filtered in `report.ts` `NOISE_404_URL_PATTERNS`)
 - `/em-prerender`, `/em-cgi/` — Edgemesh instrumentation endpoints (harmless leftovers)
 - `cdn.shopify.com/.../t/NNN/` where NNN ≠ `2676` — stale references from inactive themes
+- `/Liquid(\s|%20|\+)error/i` — Liquid template errors rendered into `href` attributes (e.g. `/products/Liquid%20error%20(sections/callout-card%20line%2089)...`). Known theme bugs in `sections/callout-card.liquid:89`, `sections/callout-card-v2.liquid:147`, `sections/ryze-hero-product-bundle.liquid:249` — tracked separately, suppressed at network-check time so they don't dominate the 404 report.
 
 ### Message-level filtering
 - `console:error` and `js:pageerror` suppressed by blanket `NOISE_RULE_IDS` (not per-message regex)
