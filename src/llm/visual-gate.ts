@@ -48,7 +48,7 @@ export async function gateRecords(records: BugRecord[]): Promise<GateResult> {
     return {
       kept: [...outOfScope, ...fallback],
       suppressed: [],
-      failedCount: 0,
+      failedCount: inScope.length,
       totalGated: inScope.length,
     };
   }
