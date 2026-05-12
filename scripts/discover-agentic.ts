@@ -10,10 +10,11 @@ const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
 const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
 const OUTPUT_PATH = join(process.cwd(), 'data', 'discoveries.jsonl');
 
-// Two batches of 2 — matches the max 2 concurrent browser context constraint
+// Three batches: two of 2 personas, one of 1 — matches the max 2 concurrent browser context constraint
 const PERSONA_BATCHES = [
   ['revenue-hawk', 'skeptical-first-timer'],
   ['brand-purist', 'forensic-technician'],
+  ['dr-marcus-chen'],
 ];
 
 async function main(): Promise<void> {
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
   const urlList = JSON.parse(readFileSync(URL_LIST_PATH, 'utf8')) as UrlList;
   const totalUrls = Object.values(urlList).flat().length;
 
-  console.log(`\n🔍 Agentic discovery: ${totalUrls} URLs across 4 personas (2 concurrent)\n`);
+  console.log(`\n🔍 Agentic discovery: ${totalUrls} URLs across 5 personas (2 concurrent max)\n`);
 
   for (const batch of PERSONA_BATCHES) {
     console.log(`\n▶ Batch: ${batch.join(' + ')}`);
