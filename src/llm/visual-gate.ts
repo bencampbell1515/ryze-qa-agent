@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'node:fs';
+import pLimit from 'p-limit';
 import type { BugRecord } from '../types.js';
 
 const GATED_RULE_IDS = new Set([
@@ -14,6 +15,7 @@ const GATED_RULE_IDS = new Set([
 
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 512;
+const CONCURRENCY = 8;
 
 const SYSTEM_PROMPT = `You are reviewing a candidate bug from an automated QA audit of an e-commerce site. Decide whether this bug is something a typical shopper would actually notice.
 
@@ -150,16 +152,32 @@ export async function gateRecords(
   const suppressed: BugRecord[] = [];
   let failedCount = 0;
 
-  for (const r of inScope) {
-    try {
-      const v = await withRetries(() => callLLMForVerdict(client, r), retryDelayMs);
-      const annotated = { ...r, verdict: v.verdict, verdictReason: v.reason };
-      if (v.verdict === 'not-visible') suppressed.push(annotated);
-      else kept.push(annotated);
-    } catch (err) {
+  const limit = pLimit(CONCURRENCY);
+  const results = await Promise.all(
+    inScope.map((r) =>
+      limit(async () => {
+        try {
+          const v = await withRetries(() => callLLMForVerdict(client, r), retryDelayMs);
+          return { record: { ...r, verdict: v.verdict, verdictReason: v.reason }, failed: false };
+        } catch (err) {
+          console.warn(`[visual-gate] ${r.fingerprint} failed: ${(err as Error).message}`);
+          return {
+            record: { ...r, verdict: 'uncertain' as const, verdictReason: 'gate failed after retries' },
+            failed: true,
+          };
+        }
+      }),
+    ),
+  );
+
+  for (const { record, failed } of results) {
+    if (failed) {
       failedCount++;
-      console.warn(`[visual-gate] ${r.fingerprint} failed: ${(err as Error).message}`);
-      kept.push({ ...r, verdict: 'uncertain', verdictReason: 'gate failed after retries' });
+      kept.push(record);
+    } else if (record.verdict === 'not-visible') {
+      suppressed.push(record);
+    } else {
+      kept.push(record);
     }
   }
 
