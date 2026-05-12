@@ -8,6 +8,11 @@ import { takeScreenshot, triggerLazyLoad } from './checks/visual.js';
 import { runSeoCheck } from './checks/seo.js';
 import { runRevenueCheck, resetAtcCount } from './checks/revenue.js';
 import { runImageCheck } from './checks/image.js';
+import { runCurrencyCheck } from './checks/currency.js';
+import { runJsonLdCheck } from './checks/jsonld.js';
+import { runOpenGraphCheck } from './checks/opengraph.js';
+import { runNewsletterCheck } from './checks/newsletter.js';
+import { runSearchCheck } from './checks/search.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -97,6 +102,10 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
 
     await runSeoCheck(page, bugs, viewport);
     await runImageCheck(page, bugs, viewport);
+    await runCurrencyCheck(page, bugs, viewport).catch(() => {});
+    await runJsonLdCheck(page, bugs, viewport).catch(() => {});
+    await runOpenGraphCheck(page, bugs, viewport).catch(() => {});
+    await runNewsletterCheck(page, bugs, viewport).catch(() => {});
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport);
@@ -106,5 +115,14 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     await takeScreenshot(page, slug, viewport).catch(() => {});
 
     await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {});
+  }
+
+  // Run search check once per audit run (not per URL — it navigates to /search itself).
+  // Targets www.ryzesuperfoods.com only (shop. is Hydrogen, no /search endpoint).
+  try {
+    await page.goto('https://www.ryzesuperfoods.com/', { waitUntil: 'load', timeout: 30_000 });
+    await runSearchCheck(page, bugs, viewport);
+  } catch {
+    // Search check failure is non-fatal — don't abort the audit's bug flush.
   }
 });
