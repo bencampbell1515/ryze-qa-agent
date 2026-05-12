@@ -20,6 +20,12 @@ export function normalizeMessage(msg: string, ruleId?: string): string {
     // Keep the URL path so different broken resources produce different fingerprints,
     // but strip the host so 400 and 404 on the same path collapse into one record.
     normalized = normalized.replace(/https?:\/\/[^/\s,)'"]+/g, '');
+    // DEDUP-010: normalize Shopify CDN responsive-image query params so the same
+    // broken asset across viewports and deploys collapses to one fingerprint.
+    // - `width=\d+` varies per viewport (Shopify srcset emits 820/1024/1800/etc.)
+    // - `v=\d+` is a cache-buster that changes on every theme deploy
+    normalized = normalized.replace(/([?&])width=\d+/g, '$1width=N')
+                           .replace(/([?&])v=\d+/g, '$1v=N');
   } else {
     normalized = normalized.replace(/https?:\/\/[^\s,)'"]+/g, 'URL');
   }
@@ -28,6 +34,9 @@ export function normalizeMessage(msg: string, ruleId?: string): string {
     .replace(URL_PATTERN, '/*/')
     .replace(DATE_PATTERN, 'DATE')
     .replace(ID_SUFFIX_PATTERN, '-N')
+    // DEDUP-009: collapse viewport-specific pixel dimensions (e.g., "768×317", "390x161")
+    // so the same broken image across desktop/tablet/mobile produces one fingerprint, not three.
+    .replace(/\b\d+\s*[×x]\s*\d+\b/g, 'N×N')
     .replace(/\b\d+\.\d+\b/g, 'N')
     .replace(/#[0-9a-fA-F]{3,8}\b/g, '#HEX')
     .replace(/\s+/g, ' ')

@@ -15,6 +15,11 @@ const NOISE_HOSTS = [
   'id.ryzesuperfoods.com',
   'api.rechargeapps.com',
   'myshopify.com',
+  // NOISE-HULK: HulkApps form-builder's WAF 403s the RyzeQABot UA. Verified
+  // (2026-05-12) the same /corepage/customform endpoints return 200 with a
+  // normal browser UA — the form works for real users. Filtering the whole
+  // host since every hulkapps subresource has the same UA gate.
+  'hulkapps.com',
 ];
 
 const NOISE_URL_PATTERNS = ['/em-cgi/', '/em-js/', '/em-prerender'];

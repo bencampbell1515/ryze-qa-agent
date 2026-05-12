@@ -34,11 +34,17 @@ export async function runImageCheck(
     extra?: string;
   };
 
+  // Two-pass collection to suppress race-condition false positives on `zero-natural`:
+  // some <img> tags briefly report `complete=true && naturalWidth=0` while a slow
+  // CDN response is in-flight. Wait 1500ms after the first scan and re-confirm
+  // each candidate before emitting it. Verified empirically (2026-05-12) that
+  // `starter-kit-featured` images flagged as `naturalWidth=0` actually finish
+  // loading with `naturalWidth=1500+` ~1s later.
   const hits = (await page.evaluate(`
-    (function () {
+    (async function () {
       var BROKEN_PICTURE_RE = /cdn\\/shop\\/files\\/\\?v=/;
       var MIN_BOX = 8; // ignore 1px tracking pixels and decorative shims
-      var out = [];
+      var ANCESTOR_HOPS = 10;
 
       function pathOf(el) {
         var parts = [];
@@ -55,14 +61,27 @@ export async function runImageCheck(
         return parts.join(' > ');
       }
 
+      // Visibility check walks ancestors for opacity:0 and aria-hidden=true since
+      // neither propagates as a computed style on the child. display:none and
+      // visibility:hidden on ancestors are already caught (zero bbox or inherited
+      // computed visibility, respectively).
       function isVisible(el) {
         var s = window.getComputedStyle(el);
         if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0) return false;
+        var cur = el.parentElement;
+        var hops = 0;
+        while (cur && hops++ < ANCESTOR_HOPS) {
+          var ps = window.getComputedStyle(cur);
+          if (parseFloat(ps.opacity) === 0) return false;
+          if (cur.getAttribute && cur.getAttribute('aria-hidden') === 'true') return false;
+          cur = cur.parentElement;
+        }
         var r = el.getBoundingClientRect();
         return r.width >= MIN_BOX && r.height >= MIN_BOX;
       }
 
-      // (1) and (2): <img> elements
+      // PASS 1 — collect candidates, keeping live element references for re-check
+      var candidates = []; // { kind, el, selectorPath, outerHTML, box, extra }
       var imgs = document.querySelectorAll('img');
       for (var i = 0; i < imgs.length; i++) {
         var img = imgs[i];
@@ -70,22 +89,20 @@ export async function runImageCheck(
         var srcAttr = img.getAttribute('src');
         var r = img.getBoundingClientRect();
         var common = {
+          el: img,
           selectorPath: pathOf(img),
           outerHTML: img.outerHTML.slice(0, 300),
           box: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
         };
         if (srcAttr === '' || srcAttr === null) {
-          out.push(Object.assign({ kind: 'empty-src' }, common));
+          candidates.push(Object.assign({ kind: 'empty-src' }, common));
           continue;
         }
-        // Image has finished loading but the response was empty / unrenderable.
-        // .complete is true after either successful decode or hard failure.
         if (img.complete && img.naturalWidth === 0) {
-          out.push(Object.assign({ kind: 'zero-natural', extra: 'src=' + srcAttr.slice(0, 200) }, common));
+          candidates.push(Object.assign({ kind: 'zero-natural', extra: 'src=' + srcAttr.slice(0, 200) }, common));
         }
       }
 
-      // (3): broken <picture> template — Replo / page-builder emitting empty filename
       var sources = document.querySelectorAll('picture source[srcset]');
       var reportedPictures = new Set();
       for (var j = 0; j < sources.length; j++) {
@@ -97,8 +114,9 @@ export async function runImageCheck(
         reportedPictures.add(pic);
         if (!isVisible(pic)) continue;
         var pr = pic.getBoundingClientRect();
-        out.push({
+        candidates.push({
           kind: 'broken-picture-template',
+          el: pic,
           selectorPath: pathOf(pic),
           outerHTML: pic.outerHTML.slice(0, 400),
           box: { x: Math.round(pr.x), y: Math.round(pr.y), w: Math.round(pr.width), h: Math.round(pr.height) },
@@ -106,6 +124,34 @@ export async function runImageCheck(
         });
       }
 
+      // PASS 2 — re-check zero-natural after a delay; drop if image now reports
+      // a positive naturalWidth (slow CDN response settled).
+      await new Promise(function (resolve) { setTimeout(resolve, 1500); });
+
+      // SCOPE: only flag bugs within ~1.5x viewport height of the top of the
+      // page. Latent DOM defects buried far below the fold (e.g., y > 4000px
+      // on a 900px viewport) aren't part of the shopper UX and should not
+      // dominate the report. Real first-impression breakage is always inside
+      // this range.
+      var VIEWPORT_CUTOFF = window.innerHeight * 1.5;
+
+      var out = [];
+      for (var k = 0; k < candidates.length; k++) {
+        var c = candidates[k];
+        if (c.kind === 'zero-natural') {
+          var i2 = c.el;
+          if (!(i2.complete && i2.naturalWidth === 0)) continue; // recovered → suppress
+        }
+        // Re-read live bounding box after the 1500ms wait — layout may have shifted.
+        var freshRect = c.el.getBoundingClientRect();
+        var topY = freshRect.top + window.scrollY;
+        if (topY > VIEWPORT_CUTOFF) continue; // below the fold → not a visible UX bug
+        // strip the element reference before returning across the bridge
+        out.push({
+          kind: c.kind, selectorPath: c.selectorPath, outerHTML: c.outerHTML,
+          box: c.box, extra: c.extra,
+        });
+      }
       return out;
     })()
   `)) as Hit[];

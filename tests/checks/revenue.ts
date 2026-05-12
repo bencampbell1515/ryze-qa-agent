@@ -91,6 +91,14 @@ async function runCartChecks(
   viewport: Viewport,
   sourceUrl: string,
 ): Promise<void> {
+    // ATC-007: an empty cart has no subtotal and no checkout button by design.
+    // Skip checks unless the cart actually contains line items — otherwise direct
+    // navigation to /cart URLs (or a too-short ATC wait) produces false-positive criticals.
+    const hasItems = await page.locator(
+      '.cart-item, [data-cart-item], .cart__row, tr.line-item, [data-cart-line-item], li.cart__item',
+    ).first().isVisible().catch(() => false);
+    if (!hasItems) return;
+
     const subtotal = await page.locator('[data-cart-subtotal], .cart__subtotal, [class*="subtotal"]')
       .first().textContent().catch(() => null);
     if (!subtotal || !/\$\d/.test(subtotal)) {
