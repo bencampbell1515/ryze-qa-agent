@@ -163,5 +163,11 @@ export async function gateRecords(
     }
   }
 
+  if (inScope.length > 0 && failedCount / inScope.length > 0.5) {
+    throw new Error(
+      `visual gate failed: ${failedCount} of ${inScope.length} records could not be validated (>50%). Rerun \`npm run report\` to retry without redoing the audit.`,
+    );
+  }
+
   return { kept, suppressed, failedCount, totalGated: inScope.length };
 }

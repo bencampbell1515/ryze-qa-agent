@@ -147,16 +147,30 @@ test('LLM error → failedCount++ and record kept as uncertain', async () => {
   const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
   process.env.DISABLE_VISUAL_GATE = '0';
   process.env.ANTHROPIC_API_KEY = 'test';
-  const failClient = {
-    messages: { create: async () => { throw new Error('boom'); } },
+  let callCount = 0;
+  const failThenSucceedClient = {
+    messages: {
+      create: async () => {
+        callCount++;
+        if (callCount <= 3) throw new Error('boom');
+        return {
+          content: [{ type: 'tool_use', name: 'submit_verdict', id: 'toolu_test', input: { verdict: 'visible', reason: 'ok' } }],
+          stop_reason: 'tool_use',
+        };
+      },
+    },
   } as unknown as Anthropic;
   try {
-    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
-    const result = await gateRecords(records, { client: failClient, retryDelayMs: 1 });
+    const records = [
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'fail-fp' }),
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'pass-fp' }),
+    ];
+    const result = await gateRecords(records, { client: failThenSucceedClient, retryDelayMs: 1 });
     expect(result.failedCount).toBe(1);
-    expect(result.kept).toHaveLength(1);
-    expect(result.kept[0].verdict).toBe('uncertain');
-    expect(result.kept[0].verdictReason).toBe('gate failed after retries');
+    expect(result.kept).toHaveLength(2);
+    const failedRec = result.kept.find((r) => r.fingerprint === 'fail-fp');
+    expect(failedRec?.verdict).toBe('uncertain');
+    expect(failedRec?.verdictReason).toBe('gate failed after retries');
     expect(result.suppressed).toHaveLength(0);
   } finally {
     if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
@@ -204,12 +218,71 @@ test('retry: 3 consecutive failures → record counted as failed, verdict=uncert
   const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
   process.env.DISABLE_VISUAL_GATE = '0';
   process.env.ANTHROPIC_API_KEY = 'test';
+  // Use 2 records; flakyClient(99) fails fp1 every attempt (exhausts retries),
+  // but succeeds fp2 on attempt 100 — however with 2 records: 1/2=50% ≤ 50%,
+  // which is at the boundary (not > 50%), so no hard-fail throw.
+  // To keep it simple: flakyClient(3) fails exactly maxAttempts (3) times then succeeds.
+  // Record 1 gets calls 1-3 (all fail, exhausts retries), record 2 gets call 4 (succeeds).
   try {
-    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
-    const result = await gateRecords(records, { client: flakyClient(99, 'visible'), retryDelayMs: 1 });
-    expect(result.kept).toHaveLength(1);
-    expect(result.kept[0].verdict).toBe('uncertain');
+    const records = [
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'fp-fail' }),
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'fp-pass' }),
+    ];
+    const result = await gateRecords(records, { client: flakyClient(3, 'visible'), retryDelayMs: 1 });
+    expect(result.kept).toHaveLength(2);
+    const failedRec = result.kept.find((r) => r.fingerprint === 'fp-fail');
+    expect(failedRec?.verdict).toBe('uncertain');
     expect(result.failedCount).toBe(1);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('hard-fail: >50% of in-scope records fail → throws', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  try {
+    const records = [
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'a' }),
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'b' }),
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'c' }),
+    ];
+    await expect(
+      gateRecords(records, { client: flakyClient(99), retryDelayMs: 1 }),
+    ).rejects.toThrow(/visual gate failed/i);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('hard-fail boundary: exactly 50% failed → does NOT throw', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  let calls = 0;
+  const client = {
+    messages: {
+      create: async () => {
+        calls++;
+        if (calls <= 3) throw new Error('fail');
+        return {
+          content: [{ type: 'tool_use', name: 'submit_verdict', id: 't', input: { verdict: 'visible', reason: 'ok' } }],
+          stop_reason: 'tool_use',
+        };
+      },
+    },
+  } as unknown as Anthropic;
+  try {
+    const records = [
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'a' }),
+      fakeRecord({ ruleId: 'content:broken-image', fingerprint: 'b' }),
+    ];
+    const result = await gateRecords(records, { client, retryDelayMs: 1 });
+    expect(result.failedCount).toBe(1);
+    expect(result.totalGated).toBe(2);
   } finally {
     if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
     if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
