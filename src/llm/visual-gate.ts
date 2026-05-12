@@ -51,6 +51,8 @@ export type GateResult = {
 export type GateOptions = {
   /** Optional injected client — used by tests; in production we construct from env */
   client?: Anthropic;
+  /** Override base retry delay (default 1000ms). Tests use 1ms. */
+  retryDelayMs?: number;
 };
 
 type Verdict = { verdict: 'visible' | 'uncertain' | 'not-visible'; reason: string };
@@ -81,6 +83,25 @@ function buildContent(r: BugRecord): Anthropic.MessageParam['content'] {
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
   }
   return content;
+}
+
+async function withRetries<T>(
+  fn: () => Promise<T>,
+  retryDelayMs: number,
+  maxAttempts = 3,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxAttempts) break;
+      const delay = retryDelayMs * Math.pow(3, attempt - 1);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 async function callLLMForVerdict(client: Anthropic, r: BugRecord): Promise<Verdict> {
@@ -124,20 +145,21 @@ export async function gateRecords(
   }
 
   const client = opts.client ?? new Anthropic({ apiKey });
+  const retryDelayMs = opts.retryDelayMs ?? 1000;
   const kept: BugRecord[] = [...outOfScope];
   const suppressed: BugRecord[] = [];
   let failedCount = 0;
 
   for (const r of inScope) {
     try {
-      const v = await callLLMForVerdict(client, r);
+      const v = await withRetries(() => callLLMForVerdict(client, r), retryDelayMs);
       const annotated = { ...r, verdict: v.verdict, verdictReason: v.reason };
       if (v.verdict === 'not-visible') suppressed.push(annotated);
       else kept.push(annotated);
     } catch (err) {
       failedCount++;
       console.warn(`[visual-gate] ${r.fingerprint} failed: ${(err as Error).message}`);
-      kept.push({ ...r, verdict: 'uncertain', verdictReason: 'gate failed' });
+      kept.push({ ...r, verdict: 'uncertain', verdictReason: 'gate failed after retries' });
     }
   }
 

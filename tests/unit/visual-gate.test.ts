@@ -152,12 +152,64 @@ test('LLM error → failedCount++ and record kept as uncertain', async () => {
   } as unknown as Anthropic;
   try {
     const records = [fakeRecord({ ruleId: 'content:broken-image' })];
-    const result = await gateRecords(records, { client: failClient });
+    const result = await gateRecords(records, { client: failClient, retryDelayMs: 1 });
     expect(result.failedCount).toBe(1);
     expect(result.kept).toHaveLength(1);
     expect(result.kept[0].verdict).toBe('uncertain');
-    expect(result.kept[0].verdictReason).toBe('gate failed');
+    expect(result.kept[0].verdictReason).toBe('gate failed after retries');
     expect(result.suppressed).toHaveLength(0);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+function flakyClient(failureCount: number, finalVerdict: 'visible' | 'uncertain' | 'not-visible' = 'visible'): Anthropic {
+  let calls = 0;
+  return {
+    messages: {
+      create: async () => {
+        calls++;
+        if (calls <= failureCount) {
+          const err = new Error('429 rate limited') as Error & { status?: number };
+          err.status = 429;
+          throw err;
+        }
+        return {
+          content: [{ type: 'tool_use', name: 'submit_verdict', id: 'toolu_test', input: { verdict: finalVerdict, reason: 'ok' } }],
+          stop_reason: 'tool_use',
+        };
+      },
+    },
+  } as unknown as Anthropic;
+}
+
+test('retry: 1 failure then success → record gated normally', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  try {
+    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
+    const result = await gateRecords(records, { client: flakyClient(1, 'visible'), retryDelayMs: 1 });
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].verdict).toBe('visible');
+    expect(result.failedCount).toBe(0);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('retry: 3 consecutive failures → record counted as failed, verdict=uncertain', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  try {
+    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
+    const result = await gateRecords(records, { client: flakyClient(99, 'visible'), retryDelayMs: 1 });
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].verdict).toBe('uncertain');
+    expect(result.failedCount).toBe(1);
   } finally {
     if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
     if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
