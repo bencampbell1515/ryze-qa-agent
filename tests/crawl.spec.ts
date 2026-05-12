@@ -13,6 +13,8 @@ import { runJsonLdCheck } from './checks/jsonld.js';
 import { runOpenGraphCheck } from './checks/opengraph.js';
 import { runNewsletterCheck } from './checks/newsletter.js';
 import { runSearchCheck } from './checks/search.js';
+import { runExternalLinksCheck } from './checks/external-links.js';
+import { runTapTargetsCheck } from './checks/tap-targets.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -106,6 +108,8 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     await runJsonLdCheck(page, bugs, viewport).catch(() => {});
     await runOpenGraphCheck(page, bugs, viewport).catch(() => {});
     await runNewsletterCheck(page, bugs, viewport).catch(() => {});
+    await runExternalLinksCheck(page, bugs, viewport).catch(() => {});
+    await runTapTargetsCheck(page, bugs, viewport).catch(() => {});
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport);
