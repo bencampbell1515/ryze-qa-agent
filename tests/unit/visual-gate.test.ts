@@ -32,3 +32,42 @@ test('DISABLE_VISUAL_GATE=1 returns all records as kept with no gating', async (
     else process.env.DISABLE_VISUAL_GATE = prev;
   }
 });
+
+test('records with non-gated ruleIds pass through unchanged', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  try {
+    const records = [
+      fakeRecord({ ruleId: 'revenue:cart-subtotal-missing' }),
+      fakeRecord({ ruleId: 'seo:missing-canonical', fingerprint: 'fp2' }),
+      fakeRecord({ ruleId: 'revenue:countdown-stuck', fingerprint: 'fp3' }),
+    ];
+    const result = await gateRecords(records);
+    expect(result.kept).toHaveLength(3);
+    expect(result.suppressed).toHaveLength(0);
+    expect(result.totalGated).toBe(0);
+    expect(result.kept.every((r) => r.verdict === undefined)).toBe(true);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('records with gated ruleIds are counted in totalGated', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const records = [
+      fakeRecord({ ruleId: 'content:broken-image' }),
+      fakeRecord({ ruleId: 'network:404', fingerprint: 'fp2' }),
+      fakeRecord({ ruleId: 'revenue:cart-subtotal-missing', fingerprint: 'fp3' }),
+    ];
+    const result = await gateRecords(records);
+    expect(result.totalGated).toBe(2);
+    expect(result.kept).toHaveLength(3); // uncertain stays in kept
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
