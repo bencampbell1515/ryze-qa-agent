@@ -46,7 +46,7 @@ sitemap.xml + /debug/routes + /debug/split-tests → URL list
                        summaries + categories | HTML + PDF
 ```
 
-**Personas:** All 4 run on `claude-haiku-4-5-20251001` — revenue-hawk, forensic-technician, brand-purist, skeptical-first-timer. Run 2 concurrent (browser limit). Each works in URL batches of 7 URLs (`SESSION_BUDGET = 7`) with a prior-findings summary for cross-batch continuity.
+**Personas:** All 5 run on `claude-haiku-4-5-20251001` — revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician, dr-marcus-chen. Run 2 concurrent max (browser limit). Each works in URL batches of 7 URLs (`SESSION_BUDGET = 7`) with a prior-findings summary for cross-batch continuity.
 
 Key directories:
 - `tests/` — Playwright specs + check modules (see [tests/CLAUDE.md](tests/CLAUDE.md))
@@ -163,7 +163,6 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`validated: true` default when `ANTHROPIC_API_KEY` is absent (VALID-001, FIXED)** — The fallback in `orchestrate.ts` is now `?? false`, and a `[WARN]` message fires at startup when the key is absent. Bugs are no longer falsely marked as AI-validated when validation never ran. API key goes in `.env` at project root (dotenv is installed and wired into all LLM scripts).
 - **`reverify` is no longer part of the pipeline** — removed from `orchestrate.ts`. Live persona browsing during the audit replaces its purpose. The `reverify.ts` script still exists but is not called by any pipeline step.
 - **`scripts/run-audit.ts` handles parallel launch + signal forwarding** — spawns `test:audit` and `discover:agentic` simultaneously. Handles Ctrl-C by forwarding SIGINT to both children (otherwise they run for the rest of the session orphaned). Persona failure is non-fatal; Playwright failure aborts the pipeline.
-- **`personas/dr-marcus-chen.md` exists but is NOT wired in** — only four personas run: revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician. Marcus Chen was written during an earlier design iteration and never added to `PERSONA_BATCHES` in `discover-agentic.ts`.
 - **Semantic dedup runs on persona findings only, before merge** — `scripts/semantic-dedup.ts` sends all `discoveries.jsonl` entries to Haiku in one batch to collapse duplicates. SHA1 fingerprint dedup still runs after merge for Playwright findings. If the Haiku call fails, dedup is skipped silently (soft failure).
 - **Sonnet personas burn ~$7 in under 2 minutes — do not use Sonnet for browsing personas** — observed empirically: `skeptical-first-timer` on Sonnet made 83 tool calls for 20 URLs. Full 4-persona × 245-URL run on Sonnet would cost ~$80–150. All 4 personas now use Haiku (~$3–10 estimated for full run). Never switch brand-purist or skeptical-first-timer back to Sonnet without a hard per-persona URL cap.
 - **`SESSION_BUDGET` reduced from 20 → 7 for Haiku** — Haiku's structured output (JSON schema adherence) degrades as context fills within a session. 7 URLs/session keeps context lean; total URL coverage is unchanged across multiple sessions. If you raise this, watch for malformed `submit_finding` calls in later turns of each session.
