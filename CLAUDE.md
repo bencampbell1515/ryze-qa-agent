@@ -62,6 +62,33 @@ Key directories:
 
 ---
 
+## Visual verification gate
+
+After dedup and before scoring, every record whose ruleId is in the gated set
+(`content:broken-image`, `content:empty-image-src`, `content:broken-picture-template`,
+`network:404`, `network:4xx`, `network:failed`, `network:nav-failed`) is sent to
+Sonnet 4.6 with its element + page screenshots. The LLM returns one of
+`visible | uncertain | not-visible`:
+
+- `visible` and `uncertain` → record stays in the main report
+- `not-visible` → record is moved to `output/audit-report-<date>-suppressed.html`
+  for spot-checking (real DOM defect, but no shopper would notice)
+
+Records outside the gated set (revenue, seo, personas) pass through untouched.
+
+**Disable knob:** `DISABLE_VISUAL_GATE=1 npm run orchestrate` skips the gate
+entirely. Use during dev when iterating on report layout.
+
+**Failure handling:** the gate retries each record twice with exponential backoff.
+If >50% of records still fail, orchestrate aborts — rerun `npm run report` to
+retry the gate without redoing the 4-hour audit. If fewer than 50% fail, the
+report ships with a "gate degraded" banner at the top.
+
+**Cost & latency:** ~91 records per run at Sonnet 4.6 = ~$0.50–1.00, ~30–60s
+added to the orchestrate stage.
+
+---
+
 ## Constraints (non-negotiable)
 
 - Max 2 concurrent browser contexts; 1.5s delay between page loads
