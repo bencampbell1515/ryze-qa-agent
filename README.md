@@ -1,24 +1,25 @@
 # Ryze QA Agent
 
-Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.com) and [shop.ryzesuperfoods.com](https://shop.ryzesuperfoods.com). Crawls the live site, finds bugs across seven check modules, validates findings with Claude AI, and produces a self-contained HTML report with a PDF export.
+Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.com) and [shop.ryzesuperfoods.com](https://shop.ryzesuperfoods.com). Crawls the live site, finds bugs across 13+ check modules, validates findings with Claude AI, gates them through a visual-verification LLM, and produces a self-contained HTML report with a PDF export.
 
 ## What it does
 
-1. **Crawls** the sitemap and discovers all URLs (home, products, collections, blogs, pages)
-2. **Audits** every URL across desktop, tablet, and mobile viewports using Playwright — checking accessibility, network errors, revenue flows, SEO, visual layout, content, and performance
-3. **Validates** each finding using Claude AI agents — confirming real bugs and filtering false positives
-4. **Discovers** additional human-observable bugs using four AI personas with distinct worldviews (revenue, UX, brand, technical)
-5. **Scores** every finding by business impact — revenue issues first, then UX, then UI
-6. **Reports** a self-contained HTML report (two tabs: by severity and by category) with LLM-generated plain-English summaries, cropped screenshots, and a print-ready PDF export
+1. **Crawls** the sitemap (and the live `/debug/routes` + `/debug/split-tests` endpoints for `shop.`) and discovers all URLs (home, products, pages, blogs, cart, policies)
+2. **Audits** every URL across desktop, tablet, and mobile viewports using Playwright — network errors, image integrity, SEO/JSON-LD/OG tags, currency formatting, search/newsletter functionality, external-link safety, mobile tap-target sizing, revenue flows (ATC → cart → quantity/discount/note/remove + cart-icon counter)
+3. **Discovers** business-logic and brand bugs using 5 AI personas with distinct worldviews (revenue, UX, brand, technical, system-health)
+4. **Validates** each finding using Claude AI — confirming real bugs and filtering false positives
+5. **Visually gates** every image/network candidate with Sonnet 4.6 — bugs the LLM judges as not-visible to shoppers are routed to a separate suppressed report instead of the main one
+6. **Scores** every finding by business impact — revenue issues first, then UX, then UI
+7. **Reports** a self-contained HTML report (two tabs: by severity and by category) with LLM-generated plain-English summaries, cropped screenshots, and a print-ready PDF export. Plus a side-channel `audit-report-<date>-suppressed.html` for spot-checking gate decisions.
 
 ## Prerequisites
 
 - Node 20+
-- Google Chrome installed (uses system Chrome — no browser download)
-- `ANTHROPIC_API_KEY` environment variable set (required for validate, discover, orchestrate steps)
+- Google Chrome installed (uses system Chrome via Cloudflare O2O — no browser download)
+- `ANTHROPIC_API_KEY` in a `.env` file at project root (required for validate, discover, gate, summaries, categorise)
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
 
 ## Quick start
@@ -26,49 +27,84 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 npm install
 npm run test:crawl        # discover URLs → output/url-list.json
-npm run test:audit        # run all checks → data/bugs.jsonl  (~3–5 hours)
-npm run orchestrate       # validate + discover + score + report → output/audit-report-<date>.html + .pdf
+npm run test:audit        # run all Playwright checks → data/bugs.jsonl  (~3–5 hours)
+npm run orchestrate       # validate + dedup + visual gate + score + summaries + report
 ```
 
-Or run everything in one command (takes 4–6 hours):
+Or run everything in one command:
 
 ```bash
-npm run full-audit:v2
+npm run full-audit        # clean + crawl + [playwright ‖ personas] + orchestrate
+```
+
+Playwright and the agentic personas run in parallel via `scripts/run-audit.ts`. Both must finish before orchestrate starts.
+
+For a fast, zero-cost local check (no LLM steps):
+
+```bash
+npm run audit-only        # clean + crawl + playwright + report (skips validate, personas, gate, summaries)
 ```
 
 ## Architecture
 
 ```
-sitemap.xml → URL list → Playwright (3 viewports) → bugs.jsonl
-                                                         │
-                                              ┌──────────┴──────────┐
-                                    validate.ts (Claude)    discover.ts (4 personas)
-                                              └──────────┬──────────┘
-                                                    scorer.ts
-                                                         │
-                                                   reverify.ts (Playwright)
-                                                         │
-                                                    report.ts → audit-report.html + .pdf
+sitemap.xml + /debug/routes + /debug/split-tests → URL list
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+         Playwright (3 viewports)        5 agentic personas
+         → data/bugs.jsonl              → data/discoveries.jsonl
+                    └───────────────┬───────────────┘
+                                    ▼
+                               orchestrate
+              validate · semantic-dedup · merge + SHA1 dedup
+                  · visual gate · score · summaries · categories
+                                    │
+                ┌───────────────────┴───────────────────┐
+                ▼                                       ▼
+       audit-report-<date>.html              audit-report-<date>-suppressed.html
+       audit-report-<date>.pdf               (LLM-gated false positives, for spot-check)
 ```
+
+The **visual verification gate** sits between dedup and scoring. It sends each in-scope record's element + page screenshots to Sonnet 4.6 and routes results: `visible` and `uncertain` stay in the main report; `not-visible` goes to the suppressed report. Disable with `DISABLE_VISUAL_GATE=1`. See [CLAUDE.md](CLAUDE.md) for the gated rule set, failure modes, and tuning.
+
+## Check modules
+
+| Module | Purpose |
+|---|---|
+| `checks/network.ts` | Nav failures, 4xx/5xx, rate limits |
+| `checks/image.ts` | Visible `<img src="">`, `<img>` with `naturalWidth === 0`, broken Replo `<picture>` srcset templates |
+| `checks/seo.ts` | Canonical, JSON-LD presence, meta description presence |
+| `checks/jsonld.ts` | JSON-LD integrity — parseable, `@context`, Product schema fields on PDPs |
+| `checks/opengraph.ts` | OG completeness; PDP `og:type` must contain "product" |
+| `checks/currency.ts` | Currency formatting consistency (`$1,234.56` vs `30 USD` mixed on same page) |
+| `checks/revenue.ts` | ATC → cart subtotal/checkout/qty/discount/note/remove + cart-icon counter increment |
+| `checks/search.ts` | Search-results rendering for `coffee`, `mushroom`, `matcha`, `starter` (www only) |
+| `checks/newsletter.ts` | Newsletter form client-side email validation |
+| `checks/external-links.ts` | `<a target="_blank">` missing `rel="noopener"` |
+| `checks/tap-targets.ts` | Mobile-only — clickable elements smaller than 32×32px |
+| `checks/console.ts` | JS console errors/warnings (filtered post-hoc — bot-context noise) |
+| `checks/visual.ts` | Per-viewport screenshot capture |
+
+`a11y.ts` (axe-core) and `content.ts` (cspell typo detection) exist but are permanently disabled — too noisy. See [CLAUDE.md](CLAUDE.md) "Checks permanently disabled."
 
 ## Persona system
 
-Each AI agent is controlled by a markdown file in `personas/`. The file becomes the agent's system prompt. To tune an agent's behaviour, edit its persona file — no code changes required.
+5 AI agents browse the live site via Claude tool_use, controlled by markdown files in `personas/`. Each file IS the agent's system prompt — edit it to tune behaviour, no code changes required. All run on `claude-haiku-4-5-20251001`.
 
 | Persona | File | Focus |
 |---|---|---|
-| Orchestrator | `personas/orchestrator.md` | Scores findings, arbitrates conflicts |
-| Revenue Hawk | `personas/revenue-hawk.md` | ATC flow, pricing, trust signals |
+| Revenue Hawk | `personas/revenue-hawk.md` | ATC flow, pricing, deceptive urgency (countdown timers, discount math) |
 | Skeptical First-Timer | `personas/skeptical-first-timer.md` | Mobile nav, social proof, purchase path |
-| Brand Purist | `personas/brand-purist.md` | Copy tone, naming consistency |
-| Forensic Technician | `personas/forensic-technician.md` | Schema, analytics, canonicals |
+| Brand Purist | `personas/brand-purist.md` | Copy tone, naming consistency, on/off-brand voice |
+| Forensic Technician | `personas/forensic-technician.md` | Schema, analytics, canonicals, structured data |
 | Dr. Marcus Chen | `personas/dr-marcus-chen.md` | QA system health evaluation |
 
 ### Adding a new persona
 
-1. Create `personas/your-persona.md` with these sections: Background, Mandate, Blind Spots, Evidence Requirements, How to Frame Findings
-2. Run `npm run lint:personas` to verify structure
-3. Register the persona in `scripts/discover.ts` by adding it to the `PERSONAS` array
+1. Create `personas/your-persona.md` with sections: Background, Mandate, Domain Exclusions, Evidence Requirements, Few-shot examples. See `personas/revenue-hawk.md` as a template.
+2. Run `npm run lint:personas` to verify structure.
+3. Register the persona in `scripts/discover-agentic.ts` by adding it to a batch in the `PERSONA_BATCHES` array. Keep each batch ≤ 2 personas (max 2 concurrent browser contexts).
 
 ## Scoring model
 
@@ -100,35 +136,39 @@ npm run dismiss -- --fingerprint <fingerprint-id> --reason "by design"
 
 Fingerprint IDs appear in `data/scored-bugs.json` and in the report footer for each finding.
 
+The visual gate suppresses a different class of false positive — bugs that are real at the DOM layer but invisible to shoppers (modals, far-below-fold, srcset-with-fallback). Those land in `audit-report-<date>-suppressed.html` with the LLM's reason — spot-check that file periodically.
+
 ## Known gotchas
 
-- **Edgemesh blocks `/pages/` and `/blogs/`** — Playwright gets `ERR_TOO_MANY_REDIRECTS` on ~97 URLs. These pages load fine for real users. Bot IP needs whitelisting in the Edgemesh dashboard.
-- **Recharge ATC button takes 10–15s to render** — the subscription widget is JS-rendered. The ATC check waits 15s before flagging `revenue:no-atc`.
-- **Active Shopify theme is `t/2676`** — CDN paths with other theme IDs are stale and filtered as noise.
-- **System sleep during long audits** — run `caffeinate -dims &` before `full-audit:v2` to prevent macOS sleep.
-- **`ANTHROPIC_API_KEY` not set** — `npm run orchestrate` will warn and fall back to raw Playwright findings if the key is missing.
+- **Cloudflare O2O is the bot bypass** — system Chrome via `channel: 'chrome'` is allowed through. Headless/headed mode does NOT change noise levels; O2O already handles bot detection.
+- **`shop.ryzesuperfoods.com` has no sitemap** — URL discovery falls back to live `/debug/routes` and `/debug/split-tests` endpoints fetched on every crawl.
+- **Recharge ATC button takes 10–15s to render** — the subscription widget is JS-rendered. ATC check waits 15s before flagging `revenue:no-atc` (filtered as noise — too flaky).
+- **Active Shopify theme is `t/2676`** — CDN paths with other theme IDs are stale and filtered.
+- **System sleep during long audits** — `caffeinate -dims` may be overridden by MDM. Workaround: keystroke jiggler (`osascript -e 'key code 63'` every 50s).
+- **`ANTHROPIC_API_KEY` not set** — `npm run orchestrate` will warn and degrade gracefully: validation and personas no-op; visual gate falls back to `verdict: 'uncertain'` for in-scope records and surfaces a "gate degraded" banner on the main report.
+
+See [CLAUDE.md](CLAUDE.md) for the full gotcha catalogue.
 
 ## npm scripts reference
 
 | Command | What it does |
 |---|---|
-| `npm run test:crawl` | Discover URLs from sitemaps |
-| `npm run test:audit` | Run Playwright checks across all URLs |
-| `npm run validate` | Claude validation pass on bugs.jsonl |
-| `npm run discover` | Claude persona discovery pass |
-| `npm run orchestrate` | validate + discover + score + reverify + report |
-| `npm run report` | Dedupe + build HTML + PDF from bugs.jsonl (no scoring) |
-| `npm run full-audit:v2` | clean + crawl + audit + orchestrate |
-| `npm run clean` | Clear bugs.jsonl and intermediate data files |
+| `npm run test:crawl` | Discover URLs from sitemaps + debug endpoints |
+| `npm run test:audit` | Run Playwright checks across all URLs (3 viewports) |
+| `npm run test:unit` | Run all unit tests (~476 tests, ~30s) |
+| `npm run test:smoke` | Run orchestrator smoke tests |
+| `npm run discover:agentic` | Run 5 agentic personas standalone |
+| `npm run orchestrate` | Post-processing: validate + dedup + visual gate + score + summaries + report (requires `bugs.jsonl` to exist) |
+| `npm run report` | Dedupe + visual gate + build HTML + PDF from bugs.jsonl (no scoring/summaries) |
+| `npm run full-audit` | clean + crawl + [audit ‖ personas] + orchestrate |
+| `npm run audit-only` | clean + crawl + playwright + report (no LLM — fast, zero cost) |
+| `npm run clean` | Clear bugs.jsonl, scored-bugs, output reports, screenshots |
 | `npm run dismiss` | Add a fingerprint to the dismissal list |
-| `npm run test:unit` | Run scorer + evidence enforcer unit tests |
-| `npm run test:smoke` | Run orchestrator smoke test |
 | `npm run lint:personas` | Check persona file structure |
-| `npm run tsc` | TypeScript type check |
 
 ## Contributing
 
-- Don't substitute the tech stack without discussing first (see CLAUDE.md)
+- Don't substitute the tech stack without discussing first (see [CLAUDE.md](CLAUDE.md))
 - All new persona files must pass `npm run lint:personas`
 - The Playwright pipeline must remain the floor — new layers must fail gracefully
 - Never submit payment, create accounts, or visit `/admin` or `/account/login`

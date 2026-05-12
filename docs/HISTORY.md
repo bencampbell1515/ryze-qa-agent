@@ -1,5 +1,41 @@
 # Fix History
 
+## Added (2026-05-12, evening session) — 14 new rule IDs + 5 low-effort UX-bug checks
+
+**Phase 1 — Report-noise fixes (committed early in session):**
+- ~~Empty-cart pages flagged as `revenue:cart-subtotal-missing` + `revenue:checkout-disabled`~~ — `runCartChecks` in `tests/checks/revenue.ts` now bails early when the cart has no line items. Two false-positive paths fixed: direct navigation to `/cart/<permalink>` URLs (no session → empty cart), and ATC clicks where the 2s wait was too short for Recharge to add the item before checks fired.
+- ~~Same defect across viewports shown as multiple cards~~ — `src/dedupe/fingerprint.ts` `normalizeMessage()` now normalizes `\d+×\d+` → `N×N` so a `768×317` tablet box and a `390×161` mobile box collapse to one fingerprint. Also normalizes Shopify's responsive `width=\d+` and cache-buster `v=\d+` query params so the same broken CDN asset across viewports/deploys collapses too.
+- ~~`/pages/partner-with-us` form flagged as `network:403`~~ — HulkApps form-builder's WAF returns 403 to the bot UA but serves 200 to real shoppers. Added `hulkapps.com` to `NOISE_HOSTS` in `tests/checks/network.ts`.
+- ~~`naturalWidth === 0` race + below-fold images flagged as user-impacting~~ — `image.ts` now does a 2-pass detection (re-checks after 1500ms to suppress slow-CDN race), walks ancestors for `opacity:0` and `aria-hidden`, and drops findings with `top-y > 1.5 × viewport height` (latent DOM defects buried below the fold aren't first-impression UX).
+
+**Phase 2 — Visual verification gate** (separate HISTORY entry above).
+
+**Phase 3 — 9 new check modules (feature/interactive-checks):**
+- `checks/currency.ts` (`content:currency-format-inconsistent`)
+- `checks/jsonld.ts` (`seo:jsonld-malformed`, `seo:jsonld-missing-context`, `seo:jsonld-product-incomplete`)
+- `checks/opengraph.ts` (`seo:og-missing`, `seo:og-wrong-type`)
+- `checks/search.ts` (`content:search-broken`, `content:search-no-results-for-<query>`, `content:search-rendering-broken`)
+- `checks/newsletter.ts` (`content:newsletter-no-validation`)
+- Cart mutation extensions to `checks/revenue.ts` (`revenue:cart-qty-no-update`, `revenue:discount-invalid-no-error`, `revenue:cart-note-not-persisted`, `revenue:cart-remove-broken`)
+
+**Phase 4 — 5 low-effort additions (feature/more-checks):**
+- `personas/dr-marcus-chen.md` wired as a 3rd PERSONA_BATCH (5th browsing persona on every audit)
+- `checks/search.ts` expanded from 1 query → 4 queries (`coffee`, `mushroom`, `matcha`, `starter`) — each surfaces a distinct rule ID for single-keyword search-index issues
+- Cart-icon counter assertion in ATC flow (`revenue:cart-counter-no-update`) — captures pre-click counter, verifies post-click increment before navigating to `/cart`
+- `checks/external-links.ts` (`security:link-noopener-missing`) — flags `<a target="_blank">` missing `rel="noopener"`
+- `checks/tap-targets.ts` (`content:tap-target-too-small`) — mobile-only DOM walk, flags clickable elements <32×32 (Apple HIG recommends ≥44×44); skips child anchors when an ancestor ≥32×32 is itself the tap target
+
+**Stats:** 476 unit tests passing (404 → 476 = 72 new), TypeScript clean. ~14 net new rule IDs the bot will surface in the next audit.
+
+**Key insights:**
+- **RYZE has 0 collection pages.** Discovered while scoping filter/sort checks. URL list shows 104 products + 121 pages + 11 blogs but `collection: 0`. RYZE uses Replo landing pages for catalog aggregation rather than Shopify collection routes. Filter/sort checks were skipped entirely — no surface area to test.
+- **Dedup normalization rules live in `normalizeMessage()` (`src/dedupe/fingerprint.ts`).** Adding new normalizations there (e.g., the `N×N` rule, or `width=N`/`v=N` for Shopify CDN) collapses cosmetic-variant duplicates across viewports and deploys. If a single underlying bug starts showing as 3+ cards in the report, check whether the message contains a variable token that survives normalization.
+- **HulkApps WAF blocks the `RyzeQABot/0.1` user-agent.** All `hulkapps.com` subresources now noise-filtered. If another third-party widget shows up as `network:403` only with the bot UA, the fix is to add the host to `NOISE_HOSTS` — not to change the project's UA (the transparent UA is a deliberate `robots.txt` contract).
+- **Visual gate runs in the orchestrate pipeline post-dedup**, but for *cheap iteration* of the gate itself, write a one-off script that loads `data/scored-bugs.json` directly and calls `gateRecords()` — that bypasses `validate` (the ~25-min orchestrate bottleneck).
+- **Subagent parallel streams must use explicit `git add <file>` lists.** Twice this session, subagents using `git add -A` either pulled in another stream's in-progress files or left their own new test files uncommitted. Streams that touch DISJOINT files run safely in parallel on the same branch; streams that touch the same file (e.g. tasks 5/6/7 all editing `visual-gate.ts`) must be serialized inside a single subagent.
+- **`vitest` is NOT a project dependency.** A subagent imported it and the typecheck broke. The project's unit-test runner is `@playwright/test` (`test`, `expect`, `test.describe`, `test.beforeEach`). When writing new unit tests, use `chromium.launch({ channel: 'chrome', headless: true })` + `page.setContent(html)` for in-process fixtures.
+- **Subagents thrash on autocompact with long prompts.** Several long-prompt sub-tasks hit "context refilled within 3 turns of compact, 3 times in a row" and silently failed. Mitigations that worked: shorter prompts (the Haiku 5-min tasks ran clean), and the controller doing a post-failure inventory (`git log --oneline` + `git status` reveals what landed before the thrash; usually most work was already committed).
+
 ## Added (2026-05-12) — visual verification gate between dedup and scoring
 
 - ~~Image/network 404 findings make up the majority of every audit report, but many of them describe DOM defects no shopper actually sees~~ — empty `<img src="">` inside a closed modal, a broken background image far below the fold, a missing srcset entry where `<picture>` has working fallback sources, a 404 on a tracking pixel. Real defects at the code level, but zero impact on the shopping experience.

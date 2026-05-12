@@ -13,9 +13,16 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 | checks/content.ts | Typos via cspell, broken images |
 | checks/image.ts | Visible `<img src="">`, `<img>` with `naturalWidth === 0`, broken Replo `<picture>` srcset templates |
 | checks/network.ts | Nav failures, 4xx/5xx, 429 rate limits |
-| checks/revenue.ts | ATC → cart subtotal → checkout button enabled (stop before clicking) |
-| checks/seo.ts | Canonical, JSON-LD, meta description presence |
+| checks/revenue.ts | ATC → cart subtotal/checkout/qty/discount/note/remove + cart-icon counter increment (stop before clicking checkout) |
+| checks/seo.ts | Canonical, JSON-LD presence, meta description presence |
 | checks/visual.ts | Screenshot capture per viewport |
+| checks/currency.ts | Currency formatting consistency (`$1,234.56` vs `$1234` vs `30 USD` mixed on same page) |
+| checks/jsonld.ts | JSON-LD integrity: parseable, has `@context`, PDPs have valid `Product` schema with `name`/`image`/`offers.price`/`offers.priceCurrency` |
+| checks/opengraph.ts | Open Graph completeness — `og:title/description/image/url/type` non-empty; PDP `og:type` must contain "product" |
+| checks/search.ts | Search-results page rendering for queries `coffee`, `mushroom`, `matcha`, `starter` (runs once per audit on www only — shop. is Hydrogen, no /search) |
+| checks/newsletter.ts | Newsletter signup form has client-side email validation (HTML5 validity, aria-invalid, error class/message) |
+| checks/external-links.ts | `<a target="_blank">` missing `rel="noopener"` (security:link-noopener-missing) |
+| checks/tap-targets.ts | Mobile-only — visible clickable elements smaller than 32×32px (Apple HIG ≥44×44); skips child anchors when an ancestor ≥32×32 is itself the tap target |
 
 ## Patterns
 
