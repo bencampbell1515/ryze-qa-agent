@@ -9,7 +9,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 | run-audit.ts | Parallel launcher: spawns `test:audit` + `discover:agentic` simultaneously, streams labeled output, forwards SIGINT/SIGTERM |
 | crawl.ts | Fetches sitemap via curl, writes `output/url-list.json` |
 | report.ts | Reads bugs.jsonl → noise filter → dedup → html-builder → pdf-exporter |
-| orchestrate.ts | Full pipeline: audit → agentic personas → report (has own `NOISE_RULE_IDS` — must mirror `report.ts`) |
+| orchestrate.ts | Full pipeline: validate → semantic-dedup → merge+SHA1-dedup → **visual gate** → score → summarise → categorise → HTML/PDF (has own `NOISE_RULE_IDS` — must mirror `report.ts`) |
 | reverify.ts | Re-checks open bugs against live pages; captures element screenshots for HTML report. |
 | summarise.ts | LLM summaries per finding (Sonnet for critical/high/medium, Haiku for low) |
 | categorise.ts | Single Haiku call clusters all findings into category labels |
@@ -55,3 +55,4 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 - **Multi-run warning fires on long single runs** — `report.ts` warns when `bugs.jsonl` timestamps span >2h. A normal 3–5 hour single audit triggers it; safe to ignore after `npm run clean`.
 - **`validated: true` default when API key missing (VALID-001, FIXED)** — `orchestrate.ts` line ~169 now uses `validated: matchingBug?.validated ?? false`. A `[WARN]` message fires at startup when `ANTHROPIC_API_KEY` is absent. Bugs are no longer falsely marked as AI-confirmed when validation never ran.
 - **LLM steps silently no-op without `ANTHROPIC_API_KEY`** — `validate.ts`, `discover-agentic.ts`, `summarise.ts`, `categorise.ts` all check for the key and exit early without error. `dotenv` is now installed; put `ANTHROPIC_API_KEY=sk-ant-...` in a `.env` file at project root and it will be loaded automatically.
+- **Visual gate runs between dedup and scoring** — `gateRecords()` from `src/llm/visual-gate.ts` is called after `deduplicateBugs()` and produces `{ kept, suppressed, failedCount, totalGated }`. `recordsToScore = gateResult.kept` is what feeds the scoring loop and the main HTML report. `gateResult.suppressed` feeds `buildSuppressedHtml()` → `output/audit-report-<date>-suppressed.html`. `DISABLE_VISUAL_GATE=1` short-circuits it. See root CLAUDE.md "Visual verification gate" section for verdicts, scope, and tuning.

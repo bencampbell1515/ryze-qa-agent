@@ -7,7 +7,8 @@ Reads `data/bugs.jsonl`, deduplicates, and writes `output/audit-report-<date>.ht
 | File | Purpose |
 |------|---------|
 | ~~docx-builder.ts~~ | **Retired** — previously built Word document; replaced by html-builder + pdf-exporter |
-| html-builder.ts | Builds HTML report from deduped bug list |
+| html-builder.ts | Builds HTML report from deduped bug list. Accepts optional `gateInfo` param to render the "visual gate degraded" banner when the LLM gate had failures. |
+| suppressed-builder.ts | Renders `output/audit-report-<date>-suppressed.html` from records the visual gate judged `not-visible`. Same `escapeHtml`/`urlListHtml` helpers, simpler layout (no severity tabs/categories) — meant for spot-checking, not stakeholders. |
 | pdf-exporter.ts | Exports HTML report to PDF via headless Chrome |
 | gdocs-uploader.ts | Optional: uploads to Google Drive |
 | ../../scripts/report.ts | Entry point — noise filter → dedup → html-builder → pdf-exporter |

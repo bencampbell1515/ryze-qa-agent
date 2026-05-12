@@ -80,12 +80,28 @@ Records outside the gated set (revenue, seo, personas) pass through untouched.
 entirely. Use during dev when iterating on report layout.
 
 **Failure handling:** the gate retries each record twice with exponential backoff.
-If >50% of records still fail, orchestrate aborts — rerun `npm run report` to
+If >50% of LLM calls still fail, orchestrate aborts — rerun `npm run report` to
 retry the gate without redoing the 4-hour audit. If fewer than 50% fail, the
 report ships with a "gate degraded" banner at the top.
 
-**Cost & latency:** ~91 records per run at Sonnet 4.6 = ~$0.50–1.00, ~30–60s
-added to the orchestrate stage.
+**No-API-key path is graceful, not a hard-fail.** When `ANTHROPIC_API_KEY` is
+missing, the gate takes an early return: every in-scope record falls back to
+`verdict: 'uncertain'` with `verdictReason: 'gate skipped: no ANTHROPIC_API_KEY'`,
+`failedCount` is set to `inScope.length`, and the hard-fail >50% check is
+bypassed. The report still builds and displays the degraded banner ("N of N
+records could not be validated"). This diverges from the implementation plan,
+which predicted no-key would abort — the graceful path is better UX (no
+surprise abort on missing config) and the banner makes the degradation obvious.
+
+**Real-world calibration (2026-05-12):** 32/62 records gated, 0 suppressed in
+13.7s with `p-limit(8)` concurrency. The system prompt is deliberately
+conservative — `Be conservative: only return "not-visible" if you can
+specifically point to why a shopper wouldn't see it. When in doubt, return
+"uncertain".` For more aggressive suppression, tune the prompt in
+`src/llm/visual-gate.ts` and spot-check the suppressed report.
+
+**Cost & latency:** ~32 in-scope records per run at Sonnet 4.6 ≈ $0.50,
+~15s end-to-end.
 
 ---
 
