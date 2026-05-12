@@ -17,13 +17,18 @@ function fakeRecord(overrides: Partial<BugRecord> = {}): BugRecord {
   };
 }
 
-test('DISABLE_VISUAL_GATE=1 short-circuits: all records kept, no SDK calls', async () => {
+test('DISABLE_VISUAL_GATE=1 returns all records as kept with no gating', async () => {
+  const prev = process.env.DISABLE_VISUAL_GATE;
   process.env.DISABLE_VISUAL_GATE = '1';
-  const records = [fakeRecord(), fakeRecord({ fingerprint: 'fp2' })];
-  const result = await gateRecords(records);
-  expect(result.kept).toHaveLength(2);
-  expect(result.suppressed).toHaveLength(0);
-  expect(result.failedCount).toBe(0);
-  expect(result.totalGated).toBe(0);
-  delete process.env.DISABLE_VISUAL_GATE;
+  try {
+    const records = [fakeRecord(), fakeRecord({ fingerprint: 'fp2' })];
+    const result = await gateRecords(records);
+    expect(result.kept).toHaveLength(2);
+    expect(result.suppressed).toHaveLength(0);
+    expect(result.failedCount).toBe(0);
+    expect(result.totalGated).toBe(0);
+  } finally {
+    if (prev === undefined) delete process.env.DISABLE_VISUAL_GATE;
+    else process.env.DISABLE_VISUAL_GATE = prev;
+  }
 });
