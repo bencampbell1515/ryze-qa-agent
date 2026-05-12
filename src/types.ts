@@ -80,6 +80,10 @@ export interface BugRecord {
   outerHTMLSnippet?: string;
   helpUrl?: string;
   instanceCount: number;
+  /** Visual gate verdict — undefined means gate did not run on this record */
+  verdict?: 'visible' | 'uncertain' | 'not-visible';
+  /** One-sentence LLM rationale for the verdict */
+  verdictReason?: string;
 }
 
 /** A scored finding ready for the report. Extends BugRecord with scoring fields. */
