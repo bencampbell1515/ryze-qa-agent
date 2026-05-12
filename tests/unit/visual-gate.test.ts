@@ -73,18 +73,70 @@ test('records with gated ruleIds are counted in totalGated', async () => {
   }
 });
 
-test('with API key present, in-scope records get stub verdictReason', async () => {
+import type Anthropic from '@anthropic-ai/sdk';
+
+// Build a fake Anthropic client whose messages.create returns a tool_use block
+// with the given verdict/reason. Tests inject this via the optional `client` param.
+function fakeClient(verdict: 'visible' | 'uncertain' | 'not-visible', reason = 'mocked'): Anthropic {
+  return {
+    messages: {
+      create: async () => ({
+        content: [
+          {
+            type: 'tool_use',
+            name: 'submit_verdict',
+            id: 'toolu_test',
+            input: { verdict, reason },
+          },
+        ],
+        stop_reason: 'tool_use',
+      }),
+    },
+  } as unknown as Anthropic;
+}
+
+test('verdict=visible → record kept with verdict set', async () => {
   const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
   process.env.DISABLE_VISUAL_GATE = '0';
-  process.env.ANTHROPIC_API_KEY = 'sk-test-fake';
+  process.env.ANTHROPIC_API_KEY = 'test';
   try {
     const records = [fakeRecord({ ruleId: 'content:broken-image' })];
-    const result = await gateRecords(records);
+    const result = await gateRecords(records, { client: fakeClient('visible', 'hero is clearly broken') });
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].verdict).toBe('visible');
+    expect(result.kept[0].verdictReason).toBe('hero is clearly broken');
+    expect(result.suppressed).toHaveLength(0);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('verdict=not-visible → record routed to suppressed', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  try {
+    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
+    const result = await gateRecords(records, { client: fakeClient('not-visible', 'far below the fold') });
+    expect(result.kept).toHaveLength(0);
+    expect(result.suppressed).toHaveLength(1);
+    expect(result.suppressed[0].verdict).toBe('not-visible');
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
+
+test('verdict=uncertain → record stays in kept', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  try {
+    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
+    const result = await gateRecords(records, { client: fakeClient('uncertain') });
     expect(result.kept).toHaveLength(1);
     expect(result.kept[0].verdict).toBe('uncertain');
-    expect(result.kept[0].verdictReason).toMatch(/not yet implemented/);
-    expect(result.failedCount).toBe(0);
-    expect(result.totalGated).toBe(1);
   } finally {
     if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
     if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
