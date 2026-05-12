@@ -10,6 +10,8 @@ import { scoreBug } from '../src/scoring/scorer.js';
 import { enforceEvidence } from '../src/scoring/evidence-enforcer.js';
 import { buildHtml } from '../src/report/html-builder.js';
 import { exportPdf } from '../src/report/pdf-exporter.js';
+import { gateRecords } from '../src/llm/visual-gate.js';
+import { buildSuppressedHtml } from '../src/report/suppressed-builder.js';
 import { generateSummaries } from './summarise.js';
 import { assignCategories } from './categorise.js';
 import { semanticDedup } from './semantic-dedup.js';
@@ -137,10 +139,19 @@ async function main(): Promise<void> {
   const allBugs = [...playwrightBugs, ...discoveryAsBugs];
   const deduplicated = deduplicateBugs(allBugs);
 
+  // Step 5.5: Visual verification gate
+  console.log(`\n👁  Running visual verification gate on ${deduplicated.length} records...`);
+  const gateResult = await gateRecords(deduplicated);
+  console.log(
+    `   gated=${gateResult.totalGated}  kept=${gateResult.kept.length}  ` +
+    `suppressed=${gateResult.suppressed.length}  failed=${gateResult.failedCount}`,
+  );
+  const recordsToScore = gateResult.kept;
+
   // Step 6: Score every finding
   const knownFingerprints = loadKnownFingerprints();
 
-  const scored: ScoredBug[] = deduplicated.map((record) => {
+  const scored: ScoredBug[] = recordsToScore.map((record) => {
     const matchingBug = allBugs.find((b) => b.url === record.urls[0] && b.ruleId === record.ruleId);
     const consensusKey = `${record.urls[0]}|${record.ruleId}`;
     const consensusCount = consensusMap.get(consensusKey) ?? 1;
@@ -216,6 +227,12 @@ async function main(): Promise<void> {
   const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
   writeFileSync(htmlPath, html, 'utf8');
   console.log(`\n📄 HTML report written to ${htmlPath}`);
+
+  // Suppressed-bugs report (LLM-gated false positives, for spot-checking)
+  const suppressedHtml = await buildSuppressedHtml(gateResult.suppressed, { crawlDate: DATE });
+  const suppressedPath = join(OUTPUT_DIR, `audit-report-${DATE}-suppressed.html`);
+  writeFileSync(suppressedPath, suppressedHtml, 'utf8');
+  console.log(`📄 Suppressed-bugs report written to ${suppressedPath}`);
 
   // Step 12: Export PDF
   const pdfPath = join(OUTPUT_DIR, `audit-report-${DATE}.pdf`);
