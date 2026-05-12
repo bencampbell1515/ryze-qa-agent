@@ -134,8 +134,9 @@ export async function gateRecords(
       const annotated = { ...r, verdict: v.verdict, verdictReason: v.reason };
       if (v.verdict === 'not-visible') suppressed.push(annotated);
       else kept.push(annotated);
-    } catch {
+    } catch (err) {
       failedCount++;
+      console.warn(`[visual-gate] ${r.fingerprint} failed: ${(err as Error).message}`);
       kept.push({ ...r, verdict: 'uncertain', verdictReason: 'gate failed' });
     }
   }

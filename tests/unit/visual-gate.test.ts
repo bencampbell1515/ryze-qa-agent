@@ -142,3 +142,24 @@ test('verdict=uncertain → record stays in kept', async () => {
     if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
   }
 });
+
+test('LLM error → failedCount++ and record kept as uncertain', async () => {
+  const prev = { dis: process.env.DISABLE_VISUAL_GATE, key: process.env.ANTHROPIC_API_KEY };
+  process.env.DISABLE_VISUAL_GATE = '0';
+  process.env.ANTHROPIC_API_KEY = 'test';
+  const failClient = {
+    messages: { create: async () => { throw new Error('boom'); } },
+  } as unknown as Anthropic;
+  try {
+    const records = [fakeRecord({ ruleId: 'content:broken-image' })];
+    const result = await gateRecords(records, { client: failClient });
+    expect(result.failedCount).toBe(1);
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].verdict).toBe('uncertain');
+    expect(result.kept[0].verdictReason).toBe('gate failed');
+    expect(result.suppressed).toHaveLength(0);
+  } finally {
+    if (prev.dis === undefined) delete process.env.DISABLE_VISUAL_GATE; else process.env.DISABLE_VISUAL_GATE = prev.dis;
+    if (prev.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prev.key;
+  }
+});
