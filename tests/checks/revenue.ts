@@ -57,9 +57,62 @@ export async function runRevenueCheck(
       let aborted = false; // ATC-002: flag to prevent ghost writes after timeout
 
       const atcFlow = async (): Promise<void> => {
+        // Capture cart-icon count BEFORE ATC click (counter is typically absent/"0" on a fresh visit)
+        const COUNTER_SELECTORS = [
+          '[data-cart-count]',
+          '.cart-count',
+          '.cart__count',
+          '.header__cart-count',
+          '[class*="cart-count"]',
+          '[class*="cart-counter"]',
+        ];
+        let counterBefore: number | null = null;
+        try {
+          for (const sel of COUNTER_SELECTORS) {
+            const loc = page.locator(sel).first();
+            if (await loc.isVisible().catch(() => false)) {
+              const text = await loc.textContent().catch(() => null);
+              if (text !== null) {
+                const n = parseInt(text.trim().replace(/[^\d]/g, ''), 10);
+                counterBefore = isNaN(n) ? 0 : n;
+                break;
+              }
+            }
+          }
+        } catch { /* swallow */ }
+
         await atc.click();
         atcCheckCount++; // ATC-005: increment AFTER click succeeds, not before
         await page.waitForTimeout(2000);
+
+        // Verify cart counter incremented after ATC click
+        try {
+          if (counterBefore !== null) {
+            let counterAfter: number | null = null;
+            for (const sel of COUNTER_SELECTORS) {
+              const loc = page.locator(sel).first();
+              if (await loc.isVisible().catch(() => false)) {
+                const text = await loc.textContent().catch(() => null);
+                if (text !== null) {
+                  const n = parseInt(text.trim().replace(/[^\d]/g, ''), 10);
+                  counterAfter = isNaN(n) ? 0 : n;
+                  break;
+                }
+              }
+            }
+            if (counterAfter !== null && counterAfter <= counterBefore) {
+              bugs.add({
+                ruleId: 'revenue:cart-counter-no-update',
+                severity: 'high',
+                bugClass: 'revenue',
+                message: `Cart icon counter did not increment after ATC (was ${counterBefore}, still ${counterAfter}) on ${productPageUrl}`,
+                url: productPageUrl,
+                viewport,
+              });
+            }
+          }
+        } catch { /* swallow */ }
+
         // ATC-003: use productPageUrl captured before click to build cart URL
         const cartUrl = new URL('/cart', productPageUrl).toString();
         await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
