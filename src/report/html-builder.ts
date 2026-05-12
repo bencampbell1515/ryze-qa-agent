@@ -130,6 +130,7 @@ function toggleMore(btn){
 export async function buildHtml(
   bugs: ScoredBug[],
   meta: { crawlDate: string; totalPages: number; sites: string[] },
+  gateInfo?: { degradedCount: number; totalGated: number },
 ): Promise<string> {
   const sorted = [...bugs].sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.score - a.score,
@@ -142,6 +143,12 @@ export async function buildHtml(
     severityViewHtml(sorted),
     categoryViewHtml(sorted),
   ]);
+
+  const banner = gateInfo && gateInfo.degradedCount > 0
+    ? `<div style="background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:0.75rem 1rem;border-radius:6px;margin:1rem 0;font-size:0.95rem;">
+         ⚠ <strong>Visual gate degraded:</strong> ${gateInfo.degradedCount} of ${gateInfo.totalGated} records could not be validated by the LLM and were kept as uncertain. Rerun <code>npm run report</code> to retry.
+       </div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -163,6 +170,7 @@ export async function buildHtml(
     <span class="badge low">${counts.low} Low</span>
   </div>
 </header>
+${banner}
 <div class="tabs">
   <button class="tab active" id="tab-severity" onclick="showTab('severity')">By Severity</button>
   <button class="tab" id="tab-category" onclick="showTab('category')">By Category</button>

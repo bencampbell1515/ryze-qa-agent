@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { escapeHtml, urlListHtml } from '../../src/report/html-builder.js';
+import { escapeHtml, urlListHtml, buildHtml } from '../../src/report/html-builder.js';
 
 test('escapeHtml encodes ampersands', () => {
   expect(escapeHtml('a & b')).toBe('a &amp; b');
@@ -27,4 +27,16 @@ test('urlListHtml collapses URLs beyond 5 into overflow', () => {
   expect(html).toContain('show-more-btn');
   expect(html).toContain('url-overflow hidden');
   expect(html).toContain('https://f.com');
+});
+
+test('buildHtml renders gate-degraded banner when degradedCount > 0', async () => {
+  const html = await buildHtml([], { crawlDate: '2026-05-12', totalPages: 0, sites: ['example.com'] }, { degradedCount: 5, totalGated: 50 });
+  expect(html).toMatch(/visual gate degraded/i);
+  expect(html).toContain('5');
+  expect(html).toContain('50');
+});
+
+test('buildHtml omits gate-degraded banner when degradedCount = 0', async () => {
+  const html = await buildHtml([], { crawlDate: '2026-05-12', totalPages: 0, sites: ['example.com'] });
+  expect(html).not.toMatch(/visual gate degraded/i);
 });

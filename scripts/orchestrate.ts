@@ -223,7 +223,10 @@ async function main(): Promise<void> {
     totalPages: new Set(withCategories.flatMap((b) => b.urls)).size,
     sites: ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'],
   };
-  const html = await buildHtml(withCategories, reportMeta);
+  const html = await buildHtml(withCategories, reportMeta, {
+    degradedCount: gateResult.failedCount,
+    totalGated: gateResult.totalGated,
+  });
   const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
   writeFileSync(htmlPath, html, 'utf8');
   console.log(`\n📄 HTML report written to ${htmlPath}`);
