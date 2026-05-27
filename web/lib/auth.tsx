@@ -33,6 +33,14 @@ function isAllowedEmail(email: string | null | undefined): boolean {
   return !!email && email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
 }
 
+function isAllowedUser(u: User | null | undefined): boolean {
+  if (!u) return false;
+  if (!u.emailVerified) return false;
+  const googleLinked = u.providerData.some((p) => p.providerId === "google.com");
+  if (!googleLinked) return false;
+  return isAllowedEmail(u.email);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,10 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u && !isAllowedEmail(u.email)) {
+      if (u && !isAllowedUser(u)) {
         await fbSignOut(auth);
         setUser(null);
-        setError(`Sign-in restricted to @${ALLOWED_DOMAIN} accounts.`);
+        setError(`Sign-in restricted to verified @${ALLOWED_DOMAIN} Google accounts.`);
       } else {
         setUser(u);
         if (u) setError(null);
@@ -59,9 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     provider.setCustomParameters({ hd: ALLOWED_DOMAIN, prompt: "select_account" });
     try {
       const result = await signInWithPopup(auth, provider);
-      if (!isAllowedEmail(result.user.email)) {
+      if (!isAllowedUser(result.user)) {
         await fbSignOut(auth);
-        setError(`Sign-in restricted to @${ALLOWED_DOMAIN} accounts.`);
+        setError(`Sign-in restricted to verified @${ALLOWED_DOMAIN} Google accounts.`);
       }
     } catch (e) {
       const code = (e as { code?: string }).code ?? "unknown";

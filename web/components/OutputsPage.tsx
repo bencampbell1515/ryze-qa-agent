@@ -96,7 +96,7 @@ export function OutputsPage({ onSelectRun }: { onSelectRun: (id: string) => void
 
   const openArtifact = async (path: string) => {
     const url = await getDownloadURL(ref(storage, path));
-    window.open(url, "_blank", "noopener");
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (

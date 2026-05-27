@@ -5,15 +5,31 @@ service cloud.firestore {
       return request.auth != null;
     }
     function isRyzeUser() {
-      return isSignedIn() && request.auth.token.email.matches('.*@ryzewith[.]com$');
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email.matches('.*@ryzewith[.]com$');
+    }
+    function isValidRunId(id) {
+      return id.matches('^[A-Za-z0-9_-]{6,64}$');
+    }
+    function isValidDiffId(id) {
+      return id.matches('^[A-Za-z0-9_-]{6,64}(--[A-Za-z0-9_-]{6,64})?$');
     }
 
     match /runs/{runId} {
       allow read: if isRyzeUser();
       allow create: if isRyzeUser()
+        && isValidRunId(runId)
         && request.resource.data.keys().hasOnly(['status', 'requestedBy', 'requestedAt', 'note', 'scanConfig'])
-        && request.resource.data.status == 'requested';
+        && request.resource.data.status == 'requested'
+        && request.resource.data.requestedBy is string
+        && request.resource.data.requestedBy == request.auth.token.email
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() < 500))
+        && (!('scanConfig' in request.resource.data) || (request.resource.data.scanConfig is map && request.resource.data.scanConfig.size() < 50));
+      // Users may only cancel their own runs.
       allow update: if isRyzeUser()
+        && resource.data.requestedBy == request.auth.token.email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && request.resource.data.status == 'cancel-requested';
       allow delete: if false;
@@ -27,8 +43,13 @@ service cloud.firestore {
     match /diffRequests/{diffId} {
       allow read: if isRyzeUser();
       allow create: if isRyzeUser()
+        && isValidDiffId(diffId)
         && request.resource.data.keys().hasOnly(['runIdA', 'runIdB', 'status', 'requestedBy', 'requestedAt'])
-        && request.resource.data.status == 'requested';
+        && request.resource.data.status == 'requested'
+        && request.resource.data.runIdA is string && isValidRunId(request.resource.data.runIdA)
+        && request.resource.data.runIdB is string && isValidRunId(request.resource.data.runIdB)
+        && request.resource.data.requestedBy is string
+        && request.resource.data.requestedBy == request.auth.token.email;
       // Only the daemon (admin SDK, bypasses rules) updates these.
       allow update, delete: if false;
     }

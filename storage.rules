@@ -5,11 +5,14 @@ service firebase.storage {
       return request.auth != null;
     }
     function isRyzeUser() {
-      return isSignedIn() && request.auth.token.email.matches('.*@ryzewith[.]com$');
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email.matches('.*@ryzewith[.]com$');
     }
 
     match /reports/{runId}/{allPaths=**} {
-      allow read: if isRyzeUser();
+      allow read: if isRyzeUser() && runId.matches('^[A-Za-z0-9_-]{6,64}$');
       allow write: if false;
     }
   }

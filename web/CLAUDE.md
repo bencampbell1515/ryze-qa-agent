@@ -39,12 +39,13 @@ Static export **cannot** use Next dynamic routes (`[id]`) without `generateStati
 
 Doc ID for diffs is deterministic: `diffIdFor(a, b)` sorts and joins with `--`. Same pair → same doc → no recompute (see root CLAUDE.md gotcha).
 
-Security rules (`firestore.rules` at repo root):
-- Read: signed-in `@ryzewith.com`
-- Create `runs`: only `requested` status with the allowed key set
-- Update `runs`: only `cancel-requested` (the user can cancel; daemon does the rest)
-- Create `diffRequests`: only `requested` status, sorted-pair doc ID format
-- All other writes (daemon-side) bypass rules via Admin SDK in `scripts/runner-daemon.ts`.
+Security rules (`firestore.rules` + `storage.rules` at repo root) — **see root CLAUDE.md "Security posture" for the full picture**:
+- `isRyzeUser()` = signed-in + `email_verified` + `sign_in_provider == 'google.com'` + `@ryzewith.com` email.
+- Create `runs`: `requested` status only, key allowlist, `requestedBy == auth.token.email`, `runId` regex, size caps on `note`/`scanConfig`.
+- Update `runs`: only `cancel-requested`, and only by the original `requestedBy` (no insider griefing).
+- Create `diffRequests`: `requested` status only, validates `runIdA`/`runIdB` shapes + pins `requestedBy`.
+- Storage `/reports/{runId}/**` reads require `isRyzeUser()` + valid `runId`. All Storage writes are daemon-only via Admin SDK.
+- App Check (reCAPTCHA v3) is initialized in `lib/firebase.ts` and wrapped in `try/catch`. Currently monitor-only; flip to enforce in the Firebase App Check console after a 24h soak.
 
 ## Themes — `data-theme` on `<html>`
 

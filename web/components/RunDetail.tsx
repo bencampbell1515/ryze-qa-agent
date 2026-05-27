@@ -77,7 +77,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
   const openArtifact = async (gsPath?: string) => {
     if (!gsPath) return;
     const url = await getArtifactDownloadUrl(gsPath);
-    window.open(url, "_blank", "noopener");
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (

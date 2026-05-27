@@ -1,5 +1,37 @@
 # Fix History
 
+## Hardened (2026-05-27, session) — Full security audit + remediation of dashboard, daemon, rules, headers
+
+Triggered by the concern that `live-qa-agent.web.app` is a short guessable URL with Amplitude data linked (clarified: only via the user's local Claude Code MCP — never in the deployed app). Ran four parallel security agents across Firebase config, runner daemon, web UI, and secrets/dependencies, then remediated.
+
+**Findings + fixes (severity ordered):**
+- ~~Firestore + Storage rules checked `email` but NOT `email_verified` or `firebase.sign_in_provider`~~ — if any non-Google provider were enabled (anonymous, password, custom OIDC), an attacker could mint a token with `email: anyone@ryzewith.com` and read every run / event / report. Fixed: rules now require both claims. Google-only is also enforced in the Firebase Auth console.
+- ~~Any Ryze user could write `requestedBy: anyoneelse@ryzewith.com` on `runs.create` (impersonation), and cancel any other user's running scan~~ — added `requestedBy == request.auth.token.email` pin on both create and cancel.
+- ~~`scanConfig` accepted as opaque blob by both rules and daemon — latent SSRF the moment any audit script started reading URL fields~~ — daemon now schema-validates: key allowlist (mirrors `web/lib/scan-config.ts`), max nesting 4, strings ≤ 500 chars, arrays ≤ 100, rejects URL strings outside `ALLOWED_CRAWL_HOSTS`, blocks path-traversal-shaped keys. `src/crawl/sitemap.ts` enforces the same host allowlist at `curlFetch` + pins curl to `--proto =https,http`.
+- ~~No security headers at all on the dashboard~~ — full block added to `firebase.json`: CSP, HSTS (2y preload), X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy (camera/mic/geo/payment/usb denied), COOP.
+- ~~`runId` was used as a Firebase Storage path segment with zero validation~~ — added regex check at daemon entry + Firestore rule. `downloadBugsJson` also rejects any gs:// path not matching `reports/<validRunId>/scored-bugs.json`.
+- ~~No queue cap on the daemon — a compromised account or UI runaway could pile up days of audit work~~ — `MAX_QUEUE_LENGTH = 10`, excess marked failed with explanatory message.
+- ~~`logs/daemon.{out,err}.log` were world-readable (644)~~ — chmod 600; `start-daemon.sh` sets `umask 077` for future log rotations.
+- ~~Daemon shutdown sent SIGTERM once and immediately exited, orphaning Chrome subtrees (see "27-day-old PID 90258")~~ — escalation ladder: SIGTERM → 8s → SIGKILL → 7s, mirroring the cancel ladder.
+- ~~`firestore.rules` and `storage.rules` were untracked in git~~ — committed so future rule edits show up in code review.
+- `postcss` CVE (XSS via unescaped `</style>`) cleared via `overrides: {postcss: ^8.5.10}` in `web/package.json`. Build-time only; not runtime-exploitable, but the fix is cheap.
+- Firebase Web API key restricted in GCP Console to HTTP referrers (`*.live-qa-agent.web.app`) + 5 specific APIs.
+- Firebase App Check enabled with reCAPTCHA v3 (site key `6LfcsP8sAAAAAMToipxWzRMS5MOVAXH2DNcix2f6`), wired in `web/lib/firebase.ts`. Monitor-only on Firestore/Storage for now; flip to enforce after 24h soak.
+- `.env.example` added; was missing.
+- `web/lib/auth.tsx` `isAllowedUser()` defense-in-depth: also checks `emailVerified` + `providerData.some(p => p.providerId === 'google.com')` client-side.
+
+**One subtle fix found mid-wrap:** my `SCAN_CONFIG_ALLOWED_KEYS` set in the daemon was missing `maxDurationMin` and `concurrency` — both keys the UI's `ScanConfigModal` actually sends. They'd have been silently dropped. Fixed before this commit ships.
+
+**Key insights:**
+- **Firebase App Check + reCAPTCHA v3 needs a non-obvious CSP.** `apis.google.com` + `gstatic.com` aren't enough. You also need `https://www.google.com` in `script-src` + `frame-src`, `'unsafe-eval'` in `script-src`, and `https://content-firebaseappcheck.googleapis.com` in `connect-src`. **Getting it wrong renders the sign-in button visually but inert** — initializeAppCheck throws at module load, the whole firebase.ts export fails, React never hydrates `onClick`. Always wrap `initializeAppCheck` in try/catch.
+- **The reCAPTCHA secret key is never used by client code.** Firebase App Check uses it server-side internally. Don't paste it anywhere. If shown accidentally, reset it in the reCAPTCHA console (no code change needed — only the site key is in the bundle).
+- **`npm audit fix --force` on `firebase-admin` / `next` is a trap.** It "fixes" the advisories by downgrading to ancient majors (firebase-admin@10, next@9), which are catastrophically worse from every angle. The right move for the uuid chain is "accept and wait for upstream"; for the postcss chain it's `overrides`.
+- **Transitive advisories often don't apply to your usage.** The 8 uuid GHSA-w5hq-g745-h8pq advisories light up `npm audit` but the CVE requires calling `uuid.v3/v5/v6(name, ns, buf)` with a user-controlled buffer. `@google-cloud/storage` only calls `uuid.v4()` for random IDs. Forcing uuid@11 via override would crash the daemon at import (v11 is ESM-only; @google-cloud uses `require()`). Document accepted-risk advisories in CLAUDE.md so they don't get re-investigated every audit cycle.
+- **Admin SDK bypasses Firestore rules, so the daemon needs independent validation.** Rules are the user-facing gate; the daemon must re-validate every field that hits the filesystem or shell. `isValidRunId()` checks are duplicated in both the daemon and the rules on purpose.
+- **`SCAN_CONFIG_ALLOWED_KEYS` (daemon) MUST mirror `ScanConfig` type (UI).** They live in two repos-of-code that talk through a JSON file on disk. There's no shared type. The drop-unknown-keys policy is fail-safe (silent) which makes drift easy to miss until something downstream depends on the missing field.
+- **App Check is defense-in-depth, not the load-bearing gate.** Firestore rules are. App Check blocks curl-with-stolen-token attacks and most scripted abuse, but a wrong CSP can take it down without weakening the actual data security — provided rules are tight and `initializeAppCheck` is wrapped in try/catch.
+- **Firebase Storage `getDownloadURL` returns non-expiring tokens.** Anyone with the URL has access forever. Leaving this latent for now — real fix is a Cloud Function that mints short-lived signed URLs. Lower priority since URLs still embed unguessable tokens and only Ryze users can obtain them.
+
 ## Added (2026-05-27, session) — Web dashboard + runner daemon + semantic diff
 
 Built a Firebase-hosted web UI (`https://live-qa-agent.web.app`) from scratch and a long-lived runner daemon on this Mac that talks to it via Firestore. End-to-end: arm a scan from a phone, watch live progress, browse past reports, semantically diff two scans.

@@ -8,6 +8,34 @@ import type { UrlList } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Allowlist of hosts the bot is ever permitted to fetch. Guard against any
+ * future code path (or attacker-controlled scanConfig field) that would feed
+ * an arbitrary URL into curlFetch. Defense-in-depth — the daemon also
+ * validates scanConfig values, but this is the last line.
+ */
+const ALLOWED_HOSTS = new Set([
+  'www.ryzesuperfoods.com',
+  'shop.ryzesuperfoods.com',
+  'ryzesuperfoods.com',
+]);
+
+function assertAllowedHost(url: string): void {
+  let host: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+      throw new Error(`disallowed protocol: ${u.protocol}`);
+    }
+    host = u.host;
+  } catch (e) {
+    throw new Error(`refusing to fetch malformed URL: ${url} (${(e as Error).message})`);
+  }
+  if (!ALLOWED_HOSTS.has(host)) {
+    throw new Error(`refusing to fetch non-allowlisted host: ${host}`);
+  }
+}
+
 const SITEMAP_URLS = [
   'https://www.ryzesuperfoods.com/sitemap.xml',
 ];
@@ -159,13 +187,19 @@ function categorize(url: string): keyof UrlList | null {
 /**
  * Fetch URL body via curl -sL, which handles Edgemesh's cookie-based redirect
  * challenge that Node.js fetch cannot pass (TLS fingerprint discrimination).
+ * Host is allowlisted before any network call — see ALLOWED_HOSTS above.
  */
 async function curlFetch(url: string): Promise<string> {
+  assertAllowedHost(url);
   const { stdout } = await execFileAsync('curl', [
     '-sL',
     '--max-redirs', '20',
     '-A', 'RyzeQABot/0.1 (+pm@ryze.example)',
     '--fail-with-body',
+    // Pin the protocol to HTTPS only (allow follow-redirects to land on HTTPS;
+    // we still reject HTTP at assertAllowedHost). Don't follow file:// or other.
+    '--proto', '=https,http',
+    '--proto-redir', '=https',
     url,
   ]);
   return stdout;

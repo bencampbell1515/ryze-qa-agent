@@ -23,6 +23,125 @@ const SA_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS
   ?? join(homedir(), ".config", "ryze-qa", "service-account.json");
 const LOG_TAIL_MAX = 200;
 const LOG_FLUSH_MS = 750;
+// Cap how many runs can be queued behind the currently-executing one. Any Ryze
+// user can create runs/{id} docs; without a cap, an account compromise (or a
+// runaway script in the UI) can pile up days of audit work.
+const MAX_QUEUE_LENGTH = 10;
+
+// ---------------------------------------------------------------------------
+// Input validation — Admin SDK bypasses Firestore rules, so the daemon must
+// independently validate any field that hits the filesystem or shell.
+// ---------------------------------------------------------------------------
+
+const RUN_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+function isValidRunId(id: unknown): id is string {
+  return typeof id === "string" && RUN_ID_RE.test(id);
+}
+
+/** Allowlist of hosts the bot is ever permitted to crawl. */
+const ALLOWED_CRAWL_HOSTS = new Set([
+  "www.ryzesuperfoods.com",
+  "shop.ryzesuperfoods.com",
+  "ryzesuperfoods.com",
+]);
+
+function isAllowedCrawlUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    return ALLOWED_CRAWL_HOSTS.has(u.host);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Schema-validate the scanConfig blob before writing it to disk. Returns the
+ * sanitized config (drops unknown keys) or throws on hostile input.
+ *
+ * Keep this list in sync with what audit scripts are actually allowed to read.
+ * Adding a new field requires explicit validation here.
+ */
+// Keep this list in sync with web/lib/scan-config.ts ScanConfig type. Adding
+// a new field here without adding it there (or vice versa) silently drops
+// the value before audit scripts can read it.
+const SCAN_CONFIG_ALLOWED_KEYS = new Set([
+  "sites", "checks", "personas", "viewports",
+  "maxUrls", "maxDurationMin", "concurrency", "urlExcludes",
+  "presetName", // reserved for future preset support in UI
+]);
+const MAX_STRING_LEN = 500;
+const MAX_ARRAY_LEN = 100;
+
+function validateScanConfig(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("scanConfig must be a JSON object");
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!SCAN_CONFIG_ALLOWED_KEYS.has(key)) {
+      console.warn(`[daemon] dropping unknown scanConfig key: ${key}`);
+      continue;
+    }
+    // Generic shape checks — depth-limited, no functions, no buffers
+    const validated = sanitizeJson(value, key, 0);
+    if (validated !== undefined) out[key] = validated;
+  }
+  return out;
+}
+
+function sanitizeJson(value: unknown, path: string, depth: number): unknown {
+  if (depth > 4) throw new Error(`scanConfig.${path} nested too deep`);
+  if (value === null) return null;
+  if (typeof value === "string") {
+    if (value.length > MAX_STRING_LEN) throw new Error(`scanConfig.${path} string too long`);
+    // Any string that LOOKS like a URL must be on the crawl allowlist. This
+    // is the SSRF backstop: even if a future audit script reads scanConfig
+    // and feeds a value to curl/page.goto, hostile hosts are rejected here.
+    if (/^https?:\/\//i.test(value) || /^file:|^gopher:|^ftp:/i.test(value)) {
+      if (!isAllowedCrawlUrl(value)) {
+        throw new Error(`scanConfig.${path} contains disallowed URL: ${value.slice(0, 80)}`);
+      }
+    }
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    if (value.length > MAX_ARRAY_LEN) throw new Error(`scanConfig.${path} array too long`);
+    return value.map((v, i) => sanitizeJson(v, `${path}[${i}]`, depth + 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      // Reject keys that look like path-traversal vectors
+      if (k.includes("/") || k.includes("..") || k.startsWith("__")) {
+        throw new Error(`scanConfig.${path}.${k} has unsafe key`);
+      }
+      const sub = sanitizeJson(v, `${path}.${k}`, depth + 1);
+      if (sub !== undefined) out[k] = sub;
+    }
+    return out;
+  }
+  return undefined; // drop functions, undefined, symbols
+}
+
+async function failRun(runId: string, message: string) {
+  try {
+    await setRun(runId, {
+      status: "failed",
+      step: "done",
+      progress: 100,
+      completedAt: FieldValue.serverTimestamp(),
+      errorMessage: message,
+    });
+    await appendEvent(runId, "error", message);
+  } catch (e) {
+    console.error(`[daemon] failRun(${runId}) errored:`, e);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -237,15 +356,31 @@ async function readBugCount(): Promise<number | undefined> {
 // ---------------------------------------------------------------------------
 
 async function executeRun(runId: string) {
+  // Defense-in-depth — Firestore rules already enforce this format, but the
+  // Admin SDK bypasses rules and the daemon writes runId into a filesystem
+  // path. Hard-fail before any I/O if the ID is hostile.
+  if (!isValidRunId(runId)) {
+    console.error(`[daemon] refusing invalid runId: ${runId}`);
+    await failRun(runId, "Invalid runId format");
+    return;
+  }
   const startTs = new Date();
   console.log(`[daemon] starting run ${runId}`);
 
   // Read scanConfig from the run doc (set by UI) and persist it to disk so the
-  // audit scripts can opt into reading it. Today only the UI captures these
-  // knobs — actual filtering happens incrementally as audit scripts learn to
-  // read .ryze-scan-config.json.
+  // audit scripts can opt into reading it. Schema-validated to prevent SSRF /
+  // path traversal as new audit scripts learn to read this file.
   const docSnap = await db.collection("runs").doc(runId).get();
-  const scanConfig = docSnap.data()?.scanConfig;
+  const rawConfig = docSnap.data()?.scanConfig;
+  let scanConfig: Record<string, unknown> | null = null;
+  try {
+    scanConfig = validateScanConfig(rawConfig);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[daemon] rejecting run ${runId}: ${msg}`);
+    await failRun(runId, `scanConfig validation failed: ${msg}`);
+    return;
+  }
   if (scanConfig) {
     const configPath = join(REPO_ROOT, "data", ".ryze-scan-config.json");
     await writeFile(configPath, JSON.stringify({ runId, ...scanConfig }, null, 2));
@@ -518,6 +653,16 @@ db.collection("runs")
         if (change.type !== "added") continue;
         const id = change.doc.id;
         if (queue.includes(id) || activeRun?.id === id) continue;
+        if (!isValidRunId(id)) {
+          console.warn(`[daemon] rejecting requested run with invalid id: ${id}`);
+          void failRun(id, "Invalid runId format");
+          continue;
+        }
+        if (queue.length >= MAX_QUEUE_LENGTH) {
+          console.warn(`[daemon] queue full (${MAX_QUEUE_LENGTH}); rejecting ${id}`);
+          void failRun(id, `Queue is full (limit ${MAX_QUEUE_LENGTH}). Try again later.`);
+          continue;
+        }
         console.log(`[daemon] queued run ${id}`);
         queue.push(id);
       }
@@ -564,6 +709,13 @@ function summarize(b: ScoredBug): BugSummary {
 }
 
 async function downloadBugsJson(gsPath: string): Promise<ScoredBug[]> {
+  // Strict path shape — only files we wrote ourselves, namely
+  // gs://<bucket>/reports/<runId>/scored-bugs.json. Belt-and-braces against
+  // any future code path that lets a user influence bugsJsonPath.
+  const expected = new RegExp(`^gs://${STORAGE_BUCKET.replace(/[.]/g, "\\.")}/reports/[A-Za-z0-9_-]{6,64}/scored-bugs\\.json$`);
+  if (!expected.test(gsPath)) {
+    throw new Error(`refusing to download untrusted path: ${gsPath}`);
+  }
   const m = gsPath.match(/^gs:\/\/[^/]+\/(.+)$/);
   if (!m) throw new Error(`bad gs path: ${gsPath}`);
   const [content] = await bucket.file(m[1]).download();
@@ -657,6 +809,16 @@ async function executeDiff(diffId: string) {
     const data = snap.data() as { runIdA: string; runIdB: string } | undefined;
     if (!data) return;
     const { runIdA, runIdB } = data;
+
+    // Defense-in-depth: Firestore rules already enforce these, but Admin SDK
+    // bypasses them and downstream code uses these IDs to fetch Storage paths.
+    if (!isValidRunId(runIdA) || !isValidRunId(runIdB)) {
+      await diffRef.set(
+        { status: "failed", completedAt: FieldValue.serverTimestamp(), errorMessage: "Invalid runId(s)" },
+        { merge: true },
+      );
+      return;
+    }
 
     await diffRef.set({ status: "running-exact" }, { merge: true });
 
@@ -766,17 +928,30 @@ db.collection("diffRequests")
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 
+let shuttingDown = false;
 const shutdown = async () => {
+  if (shuttingDown) return; // a second Ctrl-C should not double-fire
+  shuttingDown = true;
   console.log(`[daemon] shutdown signal received`);
   if (activeRun) {
+    const run = activeRun;
     try {
-      killProcessGroup(activeRun, "SIGTERM");
-      await setRun(activeRun.id, {
+      await setRun(run.id, {
         status: "failed",
         completedAt: FieldValue.serverTimestamp(),
         errorMessage: "Daemon shut down",
       });
     } catch {}
+    // Escalation ladder: SIGTERM → 8s → SIGKILL → 7s → exit. Without this,
+    // wedged Chrome/Playwright children survive the daemon and become zombies
+    // (root CLAUDE.md mentions 27-day-old PID 90258 — same root cause).
+    killProcessGroup(run, "SIGTERM");
+    await new Promise((res) => setTimeout(res, 8000));
+    if (run.child.exitCode === null) {
+      console.log(`[daemon] shutdown: escalating to SIGKILL`);
+      killProcessGroup(run, "SIGKILL");
+      await new Promise((res) => setTimeout(res, 7000));
+    }
   }
   process.exit(0);
 };

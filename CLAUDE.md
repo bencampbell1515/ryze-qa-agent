@@ -113,6 +113,45 @@ See [web/CLAUDE.md](web/CLAUDE.md) for the dashboard component inventory and Ate
 
 ---
 
+## Security posture (2026-05-27)
+
+The dashboard is hard-restricted to verified `@ryzewith.com` Google accounts; the runner daemon is the only privileged code path. Layers, ordered by load-bearing:
+
+**Auth & data tier (Firestore + Storage rules, deployed):**
+- `isRyzeUser()` requires `email_verified == true` AND `firebase.sign_in_provider == 'google.com'` AND `email.matches('.*@ryzewith[.]com$')`. Email-only matching was the original gap — non-Google providers (anonymous, password, custom OIDC) could have forged the claim. Only Google is enabled in Firebase Auth console (verify periodically).
+- `runs.create` requires `requestedBy == request.auth.token.email` (no impersonation), `runId.matches('^[A-Za-z0-9_-]{6,64}$')`, `note.size() < 500`, `scanConfig.size() < 50` (number of top-level keys).
+- `runs.update` is limited to flipping `status → cancel-requested` AND `resource.data.requestedBy == auth.token.email` (users can only cancel their own runs).
+- `diffRequests.create` validates `runIdA` / `runIdB` shape + pins `requestedBy`.
+- Storage `/reports/{runId}/**` reads require the same `isRyzeUser()` + valid `runId` shape; writes are daemon-only via Admin SDK.
+
+**App Check (Firebase + reCAPTCHA v3):**
+- Site key `6LfcsP8sAAAAAMToipxWzRMS5MOVAXH2DNcix2f6` wired in `web/lib/firebase.ts`. Initialized in a `try/catch` so a CSP slip or ad blocker can't kill the entire SDK import — defense-in-depth, not the load-bearing gate.
+- Enforcement currently **monitor-only** on Firestore + Storage. Soak metrics for 24h, then flip to enforce in the App Check console.
+
+**Hosting headers (firebase.json):**
+- Full CSP, HSTS (2 years, includeSubDomains, preload), X-Frame-Options DENY (defense-in-depth with `frame-ancestors 'none'`), X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy denying camera/mic/geo/payment/usb, COOP same-origin-allow-popups (popups MUST allow `postMessage` for Google Sign-In).
+
+**Daemon input validation (`scripts/runner-daemon.ts`):**
+- `isValidRunId()` regex `^[A-Za-z0-9_-]{6,64}$` is checked at every entry point (executeRun, executeDiff, onSnapshot push). Admin SDK bypasses rules — independent validation is mandatory.
+- `validateScanConfig()` hand-rolled schema: drops unknown keys, max 4 levels of nesting, strings ≤ 500 chars, arrays ≤ 100 elements, blocks path-traversal-shaped object keys (`..`, `/`, `__`-prefix), and rejects any URL-shaped string not on `ALLOWED_CRAWL_HOSTS`. `SCAN_CONFIG_ALLOWED_KEYS` set MUST mirror `web/lib/scan-config.ts ScanConfig` type — adding a field in one without the other silently drops the value.
+- `MAX_QUEUE_LENGTH = 10` cap (rejects excess runs as failed with explanatory message).
+- `downloadBugsJson()` rejects any path not matching `^gs://<bucket>/reports/<runId>/scored-bugs\.json$` — even though the path comes from a daemon-written field, the regex backstops any future code that lets a user influence it.
+- Shutdown ladder: SIGTERM → wait 8s → SIGKILL → wait 7s. Without escalation, wedged Chrome subtrees survive the daemon as zombies (see "27-day-old PID 90258" gotcha).
+
+**Crawl allowlist (`src/crawl/sitemap.ts`):**
+- `ALLOWED_HOSTS = {www.ryzesuperfoods.com, shop.ryzesuperfoods.com, ryzesuperfoods.com}`. `assertAllowedHost()` is called inside `curlFetch` before every network call.
+- curl pinned to `--proto =https,http --proto-redir =https` (rejects file://, ftp://, gopher:// in redirect chains).
+
+**GCP API key + filesystem hardening:**
+- Firebase Web API key restricted to HTTP referrers (`*.live-qa-agent.web.app/*`) + 5 APIs (Identity Toolkit, Firestore, Storage, App Check, Installations).
+- Service account JSON at `~/.config/ryze-qa/service-account.json` is chmod 600, gitignored.
+- `scripts/start-daemon.sh` sets `umask 077` so future log rotations stay 600. Existing `logs/daemon.{out,err}.log` chmod'd to 600.
+- `.env` gitignored, `.env.example` committed as the documented template.
+
+**Accepted-risk advisories:**
+- 8 transitive `uuid` advisories chain from `firebase-admin@13` → `@google-cloud/*` (GHSA-w5hq-g745-h8pq). Not exploitable: `@google-cloud` only calls `uuid.v4()` without the buffer arg the CVE requires. `npm audit fix --force` would downgrade to `firebase-admin@10` (catastrophic) or force `uuid@11` (ESM-only, would crash the daemon since `@google-cloud` still uses `require()`). Wait for Google to bump upstream; Dependabot will surface the moment they do.
+- `postcss` CVE was cleared via `overrides` in `web/package.json` (`postcss: ^8.5.10`). Build-time only — not runtime-exploitable, but fix was cheap.
+
 ## Visual verification gate
 
 After dedup and before scoring, every record whose ruleId is in the gated set
@@ -248,6 +287,9 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **Scan config UI is wired; audit scripts don't yet read it (2026-05-27)** — `data/.ryze-scan-config.json` is written by the daemon before spawning audit, but none of `crawl.ts` / `run-audit.ts` / persona scripts currently parse it. The UI captures intent (URL excludes, max URLs, persona toggles, etc.) and the config travels with each run for future use. Follow-up: wire `RYZE_SCAN_CONFIG_PATH` env var or direct `readFile` into each audit script. Prioritise `urlCount` cap and `urlExcludes` in `crawl.ts` first — biggest UX win.
 - **`<img src="">` is silent in Chrome** (above, 2026-05-11) — closed by `tests/checks/image.ts`.
 - **27-day-old zombie Chromium PID 90258 — reboot to clear** — STAT `UEs` (uninterruptible sleep, exit-requested, session leader). The kernel can't reap it because it's wedged on a file descriptor. Harmless leftover from an April 30 audit; only a reboot will collect it. Don't waste cycles trying `kill -9` — `sudo` doesn't help either.
+- **Firebase App Check + reCAPTCHA v3 requires non-obvious CSP entries (2026-05-27)** — `apis.google.com` and `gstatic.com` are NOT sufficient. reCAPTCHA loads from `https://www.google.com/recaptcha/*` and uses `eval()` internally, so the working CSP also needs: `script-src` += `https://www.google.com` + `'unsafe-eval'`; `frame-src` += `https://www.google.com https://recaptcha.google.com`; `connect-src` += `https://content-firebaseappcheck.googleapis.com`. Symptom of getting this wrong: the sign-in button renders but is non-interactive — `initializeAppCheck` throws at module load, the entire firebase.ts export fails, React never hydrates. Wrap `initializeAppCheck` in `try/catch` so a future CSP regression can't take down the page entirely.
+- **`SCAN_CONFIG_ALLOWED_KEYS` in `runner-daemon.ts` must mirror `web/lib/scan-config.ts ScanConfig`** — adding a field in either without updating the other silently drops the value before any audit script can read it. Easy to miss: validation drops unknown keys with a `console.warn`, not an error. Today's allowed set: `sites, checks, personas, viewports, maxUrls, maxDurationMin, concurrency, urlExcludes, presetName`.
+- **Don't accept `npm audit fix --force` on `firebase-admin`/`next`** — both bumps suggested by audit are catastrophic downgrades (firebase-admin@10, next@9). Real fixes are upstream or via `overrides` (the postcss one); the uuid chain is accepted-risk (see "Security posture" section).
 
 ---
 
