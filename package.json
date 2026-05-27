@@ -19,6 +19,7 @@
     "orchestrate": "tsx scripts/orchestrate.ts",
     "full-audit": "npm run clean && npm run test:crawl && npx tsx scripts/run-audit.ts && npm run orchestrate",
     "audit-only": "npm run clean && npm run test:crawl && npm run test:audit && npm run report",
+    "daemon": "tsx scripts/runner-daemon.ts",
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
@@ -42,6 +43,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.94.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "firebase-admin": "^13.10.0"
   }
 }

@@ -1,5 +1,60 @@
 # Fix History
 
+## Added (2026-05-27, session) — Web dashboard + runner daemon + semantic diff
+
+Built a Firebase-hosted web UI (`https://live-qa-agent.web.app`) from scratch and a long-lived runner daemon on this Mac that talks to it via Firestore. End-to-end: arm a scan from a phone, watch live progress, browse past reports, semantically diff two scans.
+
+**Hybrid runner architecture (the deliberate choice):**
+- UI: Firebase Hosting + Auth + Firestore + Storage, all in the `live-qa-agent` GCP project. Auth restricted to `@ryzewith.com` via Google SSO (enforced in `lib/auth.tsx`, not by the deprecated console toggle).
+- Scan execution stays on this Mac because **Cloudflare O2O trust depends on a real Chrome on a known network** — running from cloud IPs would tank signal-to-noise. The daemon is one-at-a-time serial for scans, with a separate concurrent queue for diffs.
+- Communication is purely through Firestore — UI writes `runs/{id} {status:'requested', ...}`, daemon picks up via `onSnapshot`. No HTTP endpoints, no inbound ports, no tunnel needed.
+
+**Phase 1 — Firebase project + static-export Next.js skeleton:**
+- Created `live-qa-agent` Firebase project, provisioned Firestore (nam5 multi-region), Storage (us-central1), Authentication (Google provider). Storage requires a one-time console click; CLI alone won't provision it.
+- Next.js 16 + Tailwind 4 + Geist with `output: 'export'` for full static. Dynamic routes are incompatible with static export when IDs are unbounded → using search params (`?run=`, `?view=`) for in-app routing instead. `firebase.json` predeploy runs the Next build.
+
+**Phase 2 — Auth with hard domain enforcement (`lib/auth.tsx`):**
+- `signInWithPopup` with `GoogleAuthProvider`, `hd:'ryzewith.com'` custom param as a hint only — actual enforcement is in the `onAuthStateChanged` callback: if `email` doesn't end with `@ryzewith.com`, immediate `signOut()` + error state. Two layers because the `hd` parameter is a hint, not a security boundary.
+
+**Phase 3 + 4 — Runner daemon (`scripts/runner-daemon.ts`):**
+- Firebase Admin SDK with service account from `~/.config/ryze-qa/service-account.json` (chmod 600, never in the repo). Loaded by env var `GOOGLE_APPLICATION_CREDENTIALS` or default path.
+- Listens to `runs.where('status','==','requested')` via `onSnapshot`; queues internally so concurrent additions are processed serially.
+- Per-run lifecycle: claim → write `scanConfig` to `data/.ryze-scan-config.json` → spawn `npm run full-audit` → stream logs + progress to Firestore (debounced 750ms) → upload artifacts on success → write final status.
+- Progress parsing: regex on `> ryze-qa@.* (clean|test:crawl|test:audit|orchestrate)` for step transitions + regex on `[<persona>] Session N: M URLs remaining` for fine-grained audit-phase progress. Per-persona `(initial - current) / initial` averaged → mapped to 30–85% during the audit phase.
+- ~~Cancellation hung because `child.kill('SIGINT')` only killed the top npm process while Playwright workers + persona subprocesses + Chrome kept running~~ — spawn with `detached: true` so the child becomes a process-group leader, then signal `-pid` (the whole group). Escalation: SIGINT → wait 8s → SIGTERM → wait 7s → SIGKILL. **First SIGINT killed the tree cleanly in <10s** in our smoke test.
+- ~~Stale `cancel-requested` docs sat in the UI as "Cancelling…" forever after a daemon crash~~ — orphan recovery on startup: `runs.where('status','in',['running','cancel-requested'])` → mark all `failed` with `errorMessage: 'Daemon was not running when this run was active'`.
+
+**Phase 5 — Dashboard UI (instrument aesthetic):**
+- Committed to a "scientific instrument" aesthetic — cold deep slate base, amber as the "live/running" color (instrument backlight, not generic emerald), Instrument Serif italic for big editorial moments, JetBrains Mono for all technical data. Hand-drawn line icons, hairline rules, corner registration marks, faint dot-grid backdrop, status diodes (pulsing colored dots, not flat badges).
+- Run detail page shows giant 120–160px editorial italic headlines whose accent color encodes status (amber = running, teal = complete, coral = failed, lavender = cancelled).
+- Live log color-codes by source: `[persona]` = amber, `[playwright]` = lavender, errors = coral, successes = teal. Auto-scrolls unless the user manually scrolls up; "jump to latest" button appears when not at bottom.
+
+**Phase 6 — End-to-end smoke test passed** — daemon picks up requests in <2s, log streams in real time, cancel completes in <10s, scan-config UI captures intent into Firestore + writes `data/.ryze-scan-config.json`. Visual gate suppressed report also uploads when present.
+
+**Phase 7 — launchd autostart (`com.ryzewith.qaagent.plist`):**
+- LaunchAgent in `~/Library/LaunchAgents/` with `RunAtLoad=true` + `KeepAlive` on crash + `ThrottleInterval=10` to avoid crash loops.
+- ~~launchd's PATH doesn't include NVM, so direct `npm` invocation failed~~ — `scripts/start-daemon.sh` sources `$NVM_DIR/nvm.sh` then `exec npm run daemon`. Plist invokes `/bin/bash -l <wrapper>` instead of node/npm directly. Side benefit: future node upgrades don't require touching the plist.
+
+**Phase 8 — Visual overhaul + theme system:**
+- Added `Atelier` second theme: warm cream paper background, terracotta accent, deep editorial newsroom feel. Runs render as magazine-style **cards** with colored status band on the left and a giant serif bug count on the right.
+- Theme via `data-theme="instrument" | "atelier"` attribute on `<html>`, all design tokens in CSS variables, persisted to localStorage. Toggle in the header.
+- Added sidenav (Audits / Outputs / Presets / Diff / Stats), Outputs page (Firebase Storage browser), pre-flight scan config modal (collapsible categories, chip-input URL excludes, sliders), placeholder pages for Presets + Stats.
+
+**Phase 9 — Diff view with semantic matching (Haiku):**
+- Two-pass diff: exact fingerprint match first (deterministic, free), then send the unmatched piles to Haiku 4.5 in one batch with a structured prompt → `{"matches": [{a, b, confidence, reason}, ...]}`. Same pattern as the existing `scripts/semantic-dedup.ts` for in-run persona dedup.
+- Daemon-side execution (not client) because the Anthropic key lives in `.env` on this Mac. Added `import 'dotenv/config'` at the top of `runner-daemon.ts`.
+- Diff doc IDs are deterministic by sorted run IDs (`diffIdFor`) → automatic caching: re-picking the same pair re-subscribes to the existing result with no recompute and no API spend.
+- Progressive rendering: status banner walks `queued → step 1/2 → step 2/2 → complete`. Exact-match results render the instant they're ready; semantic pairs slot in when the LLM finishes.
+
+**Key insights:**
+- **Firebase IS GCP.** Same project, same billing, same IAM. The Firebase console is just a friendlier wrapper over a specific slice of GCP services (Identity Platform, Cloud Firestore, Cloud Storage, Cloud CDN). Anything Firebase doesn't expose nicely is still reachable from the GCP console for the same project.
+- **For long-running multi-process pipelines, `detached: true` + process-group signalling is the only reliable cancel.** Signal forwarding via the npm parent doesn't propagate through `npx tsx scripts/run-audit.ts` to its grandchildren under load. Always escalate (SIGINT → SIGTERM → SIGKILL) with backoff timers — a single signal won't beat a busy Playwright worker.
+- **Capture intent in the UI before wiring the backend.** The scan-config modal collects 20+ knobs (per-rule toggles, URL excludes, max URLs, persona selection) but only `data/.ryze-scan-config.json` is written today — audit scripts don't yet read it. That's fine: the UX is shipped, users can configure, and we incrementally wire each knob without UI churn. Validates the model before paying for the plumbing.
+- **Deterministic doc IDs give you caching for free.** Sort + join is a one-line "memoization layer" — no TTL, no invalidation logic, no extra collection. Same input → same doc → existing result.
+- **Static-export Next.js can do a full dashboard if you give up on file-system dynamic routes.** Use search params + a single `<ViewRouter>` switch in `app/page.tsx`. Real-time data (Firestore `onSnapshot`) is client-side anyway, so SSR buys nothing.
+- **Persona-generated bug descriptions vary scan-to-scan** by definition — exact-match diff fails for them. A small Haiku pass over only the *unmatched* leftovers costs $0.01–$0.03 per diff and catches the misses without re-shaping the whole pipeline.
+- **NVM + launchd needs a shell wrapper.** Always. Don't try to bake the node path into the plist — a node version bump breaks the daemon silently after next login.
+
 ## Added (2026-05-12, evening session) — 14 new rule IDs + 5 low-effort UX-bug checks
 
 **Phase 1 — Report-noise fixes (committed early in session):**

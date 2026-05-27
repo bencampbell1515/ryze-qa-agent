@@ -17,6 +17,8 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 | validate.ts | Validates bugs.jsonl entries against live pages |
 | dismiss.ts | Marks findings as dismissed; excluded from future reports |
 | probe-image-404.ts | Ad-hoc debug script: load any URL, capture CDP `Network.requestWillBeSent` initiator for the broken Replo `cdn/shop/files/?v=…` pattern, walk the live DOM to find the offending element, and run `runImageCheck` against the page. Usage: `npx tsx scripts/probe-image-404.ts [url]`. |
+| runner-daemon.ts | **Long-lived background process**, started by launchd (`com.ryzewith.qaagent.plist`). Listens to `runs` + `diffRequests` collections in Firestore. For each requested run: writes scan config to `data/.ryze-scan-config.json`, spawns `npm run full-audit` (detached process group), streams stdout/stderr + progress + URL counts to Firestore, uploads HTML/PDF/scored-bugs.json/suppressed.html to Storage on completion. For each diff request: downloads both bug JSONs, computes exact-match diff, then sends unmatched piles to Haiku for semantic matching. Cancellation: process-group SIGINT → SIGTERM (8s) → SIGKILL (15s) escalation. Orphan recovery on startup marks any `running` / `cancel-requested` docs as failed. **See root CLAUDE.md "Web UI + Runner daemon" for the full picture.** |
+| start-daemon.sh | Wrapper script invoked by the launchd plist. Sources NVM (because launchd's PATH doesn't include it), `cd` to repo root, `exec npm run daemon`. Insulates the plist from node version changes. |
 
 ## Known noise — rule IDs, hosts, and URL patterns
 

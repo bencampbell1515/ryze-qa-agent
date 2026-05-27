@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isRyzeUser() {
+      return isSignedIn() && request.auth.token.email.matches('.*@ryzewith[.]com$');
+    }
+
+    match /runs/{runId} {
+      allow read: if isRyzeUser();
+      allow create: if isRyzeUser()
+        && request.resource.data.keys().hasOnly(['status', 'requestedBy', 'requestedAt', 'note', 'scanConfig'])
+        && request.resource.data.status == 'requested';
+      allow update: if isRyzeUser()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'cancel-requested';
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isRyzeUser();
+        allow write: if false;
+      }
+    }
+
+    match /diffRequests/{diffId} {
+      allow read: if isRyzeUser();
+      allow create: if isRyzeUser()
+        && request.resource.data.keys().hasOnly(['runIdA', 'runIdB', 'status', 'requestedBy', 'requestedAt'])
+        && request.resource.data.status == 'requested';
+      // Only the daemon (admin SDK, bypasses rules) updates these.
+      allow update, delete: if false;
+    }
+  }
+}

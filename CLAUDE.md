@@ -19,6 +19,8 @@ npm run full-audit        # clean + crawl + [playwright ‖ personas] + orchestr
 npm run audit-only        # clean + crawl + playwright + report (no LLM steps — fast, zero cost)
 npm run discover:agentic  # run 4 agentic personas standalone (reads url-list.json)
 npm run orchestrate       # post-processing: validate + semantic-dedup + score + summaries + report
+npm run daemon            # runner daemon (Firestore listener) — usually auto-started by launchd
+cd web && npm run dev     # web UI dev server (Next.js, http://localhost:3000)
 ```
 
 **`full-audit` pipeline order:**
@@ -50,15 +52,64 @@ sitemap.xml + /debug/routes + /debug/split-tests → URL list
 
 Key directories:
 - `tests/` — Playwright specs + check modules (see [tests/CLAUDE.md](tests/CLAUDE.md))
-- `scripts/` — pipeline entry points: crawl, report, orchestrate, reverify, summarise, categorise (see [scripts/CLAUDE.md](scripts/CLAUDE.md))
+- `scripts/` — pipeline entry points: crawl, report, orchestrate, reverify, summarise, categorise, runner-daemon (see [scripts/CLAUDE.md](scripts/CLAUDE.md))
 - `src/crawl/` — sitemap parser, linkinator runner
 - `src/dedupe/` — fingerprint algorithm, selector-path walker, perceptual hash
 - `src/annotate/` — sharp+SVG screenshot annotation
 - `src/report/` — HTML builder, PDF exporter, screenshot cropper, styles (see [src/report/CLAUDE.md](src/report/CLAUDE.md))
 - `src/discovery/` — agentic persona runner (tools.ts, agent-loop.ts, persona-runner.ts)
-- `personas/` — persona markdown files (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician)
+- `personas/` — persona markdown files (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician, dr-marcus-chen)
 - `data/` — allowlist-domains.txt, brand-dictionary.txt, bugs.jsonl
 - `output/` — screenshots, lighthouse reports, final .html + .pdf
+- `web/` — Firebase-hosted Next.js dashboard, deployed at `https://live-qa-agent.web.app` (see [web/CLAUDE.md](web/CLAUDE.md))
+- `logs/` — runner daemon stdout/stderr (rotated by macOS, gitignored)
+
+---
+
+## Web UI + Runner daemon
+
+The whole crawl pipeline can also be operated remotely from **https://live-qa-agent.web.app** — a Firebase-hosted Next.js dashboard that lets you arm scans, watch live progress, browse past reports, and diff two scans semantically.
+
+```
+Firebase project: live-qa-agent          (GCP + Firebase, same project)
+Hosting URL:      https://live-qa-agent.web.app
+Auth:             Google SSO, hard-restricted to @ryzewith.com
+Service account:  ~/.config/ryze-qa/service-account.json  (chmod 600, gitignored)
+```
+
+**Architecture — hybrid runner pattern:** the UI lives in the cloud (Firebase Hosting + Firestore + Storage), the scan itself runs on this Mac (where Cloudflare O2O trusts our Chrome). The two halves communicate through Firestore:
+
+```
+Browser  ─── writes runs/{id} status=requested ──▶  Firestore
+                                                       │
+                                                       ▼  (onSnapshot)
+                                          scripts/runner-daemon.ts (Mac)
+                                                       │
+                                                       ▼
+                                          spawn `npm run full-audit`
+                                          stream logs + progress → Firestore
+                                          upload HTML/PDF/JSON → Storage
+                                                       │
+                                                       ▼
+Browser  ◀── live updates via onSnapshot ────────  Firestore
+```
+
+**Daemon lifecycle:** the runner daemon (`scripts/runner-daemon.ts`) runs as a launchd LaunchAgent (`~/Library/LaunchAgents/com.ryzewith.qaagent.plist`), auto-starts at login, restarts on crash, and is one-at-a-time serial for scans. It also processes `diffRequests` (separate concurrent queue — diffs run alongside, not after, scans).
+
+```bash
+launchctl print  gui/$(id -u)/com.ryzewith.qaagent   # status
+launchctl kickstart -k gui/$(id -u)/com.ryzewith.qaagent  # restart (after code edits)
+tail -f logs/daemon.out.log                          # live log
+launchctl bootout gui/$(id -u)/com.ryzewith.qaagent  # stop until next login
+```
+
+**Themes:** two full visual identities — `instrument` (default, dark/amber instrument-panel) and `atelier` (light cream/terracotta editorial newsroom with magazine-style run cards). Toggled in the header, persisted in `localStorage`.
+
+**Diff view — two-pass:** picks two completed scans, fetches `scored-bugs.json` from Storage for each, computes exact fingerprint diff, then sends the unmatched piles to Haiku 4.5 in one batch to catch persona-worded duplicates. Results write back to a deterministic `diffRequests/{sortedRunIds.join("--")}` doc → automatic caching (re-picking the same pair re-subscribes, no recompute).
+
+**Scan config (UI captures intent, plumbing partial):** the pre-flight modal collects site scope, check categories, persona toggles, viewports, max URLs, URL exclude patterns. Config is stored on the run doc and written by the daemon to `data/.ryze-scan-config.json` before spawning the audit. **Today, audit scripts do NOT yet read this file.** The UI fully captures the knobs but actual filtering is a follow-up — wire-up needs to happen per-script (`crawl.ts` for URL excludes/max-URLs, `run-audit.ts` for persona/viewport filtering, etc.).
+
+See [web/CLAUDE.md](web/CLAUDE.md) for the dashboard component inventory and Atelier/Instrument theme conventions.
 
 ---
 
@@ -189,12 +240,21 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **`<img src="">` is silent in Chrome — no network request, no broken-image icon (2026-05-11)** — per HTML spec, an empty `src` is a no-op: the browser renders an empty box of the styled dimensions and never fires a network event. This means `network:404` cannot catch it; the bot's network listener has nothing to record. `tests/checks/image.ts` (rule IDs `content:empty-image-src`, `content:broken-image`, `content:broken-picture-template`) closes this gap by inspecting the live DOM for visible `<img>` with empty/null `src`, visible `<img>` with `naturalWidth === 0` after `complete`, and visible `<picture>` with the empty-filename Replo srcset pattern. Only flags visible elements (display/visibility/opacity + box ≥ 8×8) to keep hidden modal slots silent.
 - **Replo signatures — how to recognize page-builder content (2026-05-11)** — Replo-rendered DOM has three tells: (1) `data-rid="<uuid>"` attribute on the wrapping element, (2) `r-XXXXX` hashed class names (styled-components/React style), (3) CSS custom properties named `--replo-attributes-product-productmetafields-custom-<field>` on `style` attributes. When the trailing field value is empty (`...:` with nothing after the colon), the metafield is missing — Replo still emits the template with an empty interpolation slot, producing broken `<picture>` srcsets like `cdn/shop/files/?v=NNN&width=NNN`. Known case: `/pages/mushroom-dark-roast-espanol` binds to the empty `custom.spanish_short_description_image` metafield. Fix is either populating the metafield or wrapping the Replo block in a conditional render.
 - **Debugging "where does this URL come from?" requires Playwright + CDP, not curl (2026-05-11)** — when a 404 URL doesn't appear in the static HTML response, it's being constructed client-side. Use `scripts/probe-image-404.ts` as the template: launch Chrome via Playwright, attach CDP `Network.enable`, capture `Network.requestWillBeSent` initiator (gives type=parser/script/preload + URL + line + stack), then `page.evaluate` to walk the live DOM and find the matching element. Chrome's `parser` initiator can refer to JS-injected DOM (Replo, React hydration); the reported `lineNumber` may not exist in the curl'd HTML because it counts into the post-hydration serialized document.
+- **Daemon cancellation requires process-group kill, not `child.kill('SIGINT')` (2026-05-27)** — `npm run full-audit` spawns `npx tsx scripts/run-audit.ts` which spawns Playwright workers + persona subprocesses + Chrome. Sending SIGINT only to the top npm process leaves the entire grandchild tree running (zombies for hours, locks on `data/bugs.jsonl`). Fix in `runner-daemon.ts`: spawn with `detached: true` (child becomes process-group leader), then signal `-pid` (negative = whole group): `process.kill(-child.pid, 'SIGINT')` → wait 8s → escalate to SIGTERM → wait 7s → SIGKILL. Verified: first SIGINT kills the tree cleanly in <10s normally.
+- **Daemon orphan recovery runs on startup (2026-05-27)** — any `runs/{id}` doc still in `running` or `cancel-requested` state when the daemon boots is by definition stale (no daemon was alive to be processing it). The daemon now scans for these on connect and marks them `failed` with `errorMessage: "Daemon was not running when this run was active"`. Without this, a UI run would show "Cancelling…" forever after a daemon crash. Same query: `runs.where('status','in',['running','cancel-requested'])`.
+- **NVM-installed node + launchd: needs a wrapper script (2026-05-27)** — launchd's `PATH` is sanitized and doesn't include `~/.nvm/...`. Solution: `scripts/start-daemon.sh` sources `$NVM_DIR/nvm.sh`, then `cd` to the repo and `exec npm run daemon`. The plist invokes `/bin/bash -l <wrapper>` rather than calling node/npm directly. Bonus: a node version bump doesn't require touching the plist.
+- **Firebase Hosting deploy needs Storage provisioned via console first (2026-05-27)** — `firebase deploy --only storage` fails with `"Firebase Storage has not been set up on project '<id>'"` the first time. There's no CLI shortcut. Visit `https://console.firebase.google.com/project/<projectId>/storage`, click **Get started**, accept the rules prompt, and pick a region. After that, all future deploys (rules, hosting, etc.) work from the CLI without further clicks.
+- **Diff doc IDs are deterministic by sorted run IDs → automatic caching (2026-05-27)** — `diffIdFor(a, b)` in `web/lib/diff.ts` sorts the two IDs and joins them with `--`. Same pair → same doc → no recompute (the daemon's listener fires only on newly-`requested` docs). Cost-saving by construction: re-opening the Diff page for the same pair is free even though the user wouldn't know it's cached.
+- **Scan config UI is wired; audit scripts don't yet read it (2026-05-27)** — `data/.ryze-scan-config.json` is written by the daemon before spawning audit, but none of `crawl.ts` / `run-audit.ts` / persona scripts currently parse it. The UI captures intent (URL excludes, max URLs, persona toggles, etc.) and the config travels with each run for future use. Follow-up: wire `RYZE_SCAN_CONFIG_PATH` env var or direct `readFile` into each audit script. Prioritise `urlCount` cap and `urlExcludes` in `crawl.ts` first — biggest UX win.
+- **`<img src="">` is silent in Chrome** (above, 2026-05-11) — closed by `tests/checks/image.ts`.
+- **27-day-old zombie Chromium PID 90258 — reboot to clear** — STAT `UEs` (uninterruptible sleep, exit-requested, session leader). The kernel can't reap it because it's wedged on a file descriptor. Harmless leftover from an April 30 audit; only a reboot will collect it. Don't waste cycles trying `kill -9` — `sudo` doesn't help either.
 
 ---
 
 ## Subsystem docs
 
 - [tests/CLAUDE.md](tests/CLAUDE.md) — check modules, Playwright gotchas (toHaveScreenshot, ATC timing, lazy-load)
-- [scripts/CLAUDE.md](scripts/CLAUDE.md) — pipeline scripts, noise filter config, report/orchestrate gotchas
+- [scripts/CLAUDE.md](scripts/CLAUDE.md) — pipeline scripts, noise filter config, report/orchestrate gotchas, runner-daemon
 - [src/report/CLAUDE.md](src/report/CLAUDE.md) — HTML/PDF report generation, dedup fingerprint details
+- [web/CLAUDE.md](web/CLAUDE.md) — Next.js dashboard, theme system, Firestore schema, diff view
 - [docs/HISTORY.md](docs/HISTORY.md) — session fix history and key insights

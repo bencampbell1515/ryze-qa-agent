@@ -15,3 +15,15 @@ data/report-history.jsonl
 data/validated-bugs.jsonl
 data/discoveries.jsonl
 data/scored-bugs.json
+data/.ryze-scan-config.json
+
+# Firebase / Next.js
+.firebase/
+web/.next/
+web/out/
+web/node_modules/
+*.local
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+logs/

@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces — cold deep slate with a hint of blue */
+  --color-base-0: #08080c;
+  --color-base-1: #0d0d12;
+  --color-base-2: #14141b;
+  --color-base-3: #1c1c25;
+  --color-base-4: #262631;
+
+  --color-rule:        #2a2a36;
+  --color-rule-strong: #3a3a48;
+
+  /* Text */
+  --color-ink-1: #f0eee8;
+  --color-ink-2: #b3b1a8;
+  --color-ink-3: #6e6c63;
+  --color-ink-4: #3e3d36;
+
+  /* Signals — amber is the live/running color (instrument backlight) */
+  --color-amber:    #ffb547;
+  --color-amber-glow: rgba(255, 181, 71, 0.45);
+  --color-teal:     #5cd0bb;
+  --color-coral:    #ff6d5e;
+  --color-lavender: #a89dff;
+
+  --font-display: var(--font-instrument);
+  --font-sans:    var(--font-geist-sans);
+  --font-mono:    var(--font-jetbrains);
+}
+
+:root,
+[data-theme="instrument"] {
+  color-scheme: dark;
+
+  --color-base-0: #08080c;
+  --color-base-1: #0d0d12;
+  --color-base-2: #14141b;
+  --color-base-3: #1c1c25;
+  --color-base-4: #262631;
+
+  --color-rule:        #2a2a36;
+  --color-rule-strong: #3a3a48;
+
+  --color-ink-1: #f0eee8;
+  --color-ink-2: #b3b1a8;
+  --color-ink-3: #6e6c63;
+  --color-ink-4: #3e3d36;
+
+  --color-amber:      #ffb547;
+  --color-amber-glow: rgba(255, 181, 71, 0.45);
+  --color-teal:       #5cd0bb;
+  --color-coral:      #ff6d5e;
+  --color-lavender:   #a89dff;
+
+  --dot-color: rgba(255, 255, 255, 0.045);
+  --halo-warm: rgba(255, 181, 71, 0.06);
+  --halo-cool: rgba(92, 208, 187, 0.04);
+}
+
+/* -- Atelier: warm cream editorial newsroom -- */
+[data-theme="atelier"] {
+  color-scheme: light;
+
+  --color-base-0: #f4ede0;
+  --color-base-1: #fbf6ec;
+  --color-base-2: #f0e8d6;
+  --color-base-3: #e8dec8;
+  --color-base-4: #ddcfb4;
+
+  --color-rule:        #d4c6a8;
+  --color-rule-strong: #b8a47e;
+
+  --color-ink-1: #1a1814;
+  --color-ink-2: #4a4239;
+  --color-ink-3: #8a7d6a;
+  --color-ink-4: #b8aa92;
+
+  --color-amber:      #b8431a;  /* deep terracotta — newsroom red */
+  --color-amber-glow: rgba(184, 67, 26, 0.25);
+  --color-teal:       #4a6b2a;  /* olive */
+  --color-coral:      #c4471a;
+  --color-lavender:   #6e4d8a;  /* muted plum */
+
+  --dot-color: rgba(26, 24, 20, 0.07);
+  --halo-warm: rgba(184, 67, 26, 0.05);
+  --halo-cool: rgba(74, 107, 42, 0.04);
+}
+
+html, body {
+  background: var(--color-base-0);
+  color: var(--color-ink-1);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms ease;
+}
+
+/* Tight letter-spacing on the display serif */
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  letter-spacing: -0.02em;
+}
+
+.font-mono, code, kbd, samp, pre {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-ligatures: none;
+}
+
+/* ---------- Dot grid backdrop ---------- */
+
+.dot-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--dot-color) 1px, transparent 0),
+    radial-gradient(800px 400px at 80% -10%, var(--halo-warm), transparent 60%),
+    radial-gradient(600px 300px at 0% 100%, var(--halo-cool), transparent 60%);
+  background-size: 24px 24px, 100% 100%, 100% 100%;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+/* ---------- Diode glow ---------- */
+
+.diode {
+  position: relative;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.diode::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  opacity: 0.5;
+  filter: blur(4px);
+  background: inherit;
+}
+.diode--amber  { background: var(--color-amber);    box-shadow: 0 0 6px var(--color-amber-glow); }
+.diode--teal   { background: var(--color-teal);     box-shadow: 0 0 6px rgba(92, 208, 187, 0.45); }
+.diode--coral  { background: var(--color-coral);    box-shadow: 0 0 6px rgba(255, 109, 94, 0.45); }
+.diode--lav    { background: var(--color-lavender); box-shadow: 0 0 6px rgba(168, 157, 255, 0.4); }
+.diode--off    { background: var(--color-ink-4); }
+
+.diode--pulse::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  background: inherit;
+  animation: pulse-ring 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  80%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* ---------- Scanline (active runs) ---------- */
+
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+.scanline::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 30%,
+    var(--color-amber-glow) 50%,
+    transparent 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: scan 3.2s ease-in-out infinite;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.6;
+}
+@keyframes scan {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- Stagger reveal on first mount ---------- */
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise-in {
+  animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.rise-delay-1 { animation-delay: 0.05s; }
+.rise-delay-2 { animation-delay: 0.12s; }
+.rise-delay-3 { animation-delay: 0.20s; }
+.rise-delay-4 { animation-delay: 0.30s; }
+
+/* ---------- Corner registration marks ---------- */
+
+.bracket-frame {
+  position: relative;
+}
+.bracket-frame::before,
+.bracket-frame::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--color-rule-strong);
+  pointer-events: none;
+}
+.bracket-frame::before { top: -1px; left: -1px;  border-right: none; border-bottom: none; }
+.bracket-frame::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* ---------- Scrollbars (subtle) ---------- */
+
+::-webkit-scrollbar              { width: 8px; height: 8px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: var(--color-rule);        border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover  { background: var(--color-rule-strong); }

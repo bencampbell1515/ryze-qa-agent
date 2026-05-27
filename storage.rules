@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isRyzeUser() {
+      return isSignedIn() && request.auth.token.email.matches('.*@ryzewith[.]com$');
+    }
+
+    match /reports/{runId}/{allPaths=**} {
+      allow read: if isRyzeUser();
+      allow write: if false;
+    }
+  }
+}
