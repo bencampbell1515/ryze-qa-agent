@@ -33,7 +33,7 @@ Static export **cannot** use Next dynamic routes (`[id]`) without `generateStati
 
 | Collection | Doc shape (`web/lib/schema.ts`) |
 |---|---|
-| `runs/{id}` | `status`, `step`, `progress`, `requestedBy`, `requestedAt`, `startedAt?`, `completedAt?`, `bugCount?`, `urlCount?`, `urlsScanned?`, `logTail?: string[]`, `reportPath?` (gs://), `pdfPath?`, `bugsJsonPath?`, `scanConfig?`, `errorMessage?` |
+| `runs/{id}` | `status`, `step`, `progress`, `requestedBy`, `requestedAt`, `startedAt?`, `completedAt?`, `bugCount?` (live during run, sums bugs.jsonl + discoveries.jsonl; pinned to scored count at completion), `urlCount?`, `urlsScanned?` (distinct-URL union across personas, capped at urlCount), `logTail?: string[]`, `reportPath?` (gs://), `pdfPath?`, `bugsJsonPath?`, `systemHealthPath?` (gs:// to system-health.md from `runMetaAnalysis()`), `scanConfig?`, `errorMessage?` |
 | `runs/{id}/events/{eventId}` | `ts`, `level`, `message` — milestones + errors, NOT every log line |
 | `diffRequests/{id}` | `runIdA`, `runIdB`, `status`, `exactOnlyA?`, `exactOnlyB?`, `exactBoth?`, `semanticPairs?` (Haiku output), `semanticSkipped?`, `errorMessage?` |
 
@@ -67,7 +67,7 @@ All colors are CSS custom properties — never hard-code `text-zinc-X`. Use `tex
 | `components/SignInScreen.tsx` | Centered editorial card with corner registration marks. `@ryzewith.com` domain enforced in `lib/auth.tsx`. |
 | `components/RunList.tsx` | Dashboard home. "Audits." headline, ARM-style INITIATE button, telemetry strip, runs table (instrument) or cards (atelier). |
 | `components/RunCards.tsx` | Atelier-only run list — magazine cards with colored status band, giant serif bug count. |
-| `components/RunDetail.tsx` | Per-run page. 120–160px editorial italic headline ("Audit in progress.") whose color encodes status. 4-cell telemetry grid with `<Numeral>` big stats. Cancel button. View HTML/PDF buttons when complete. |
+| `components/RunDetail.tsx` | Per-run page. 120–160px editorial italic headline whose color encodes status. 4-cell telemetry grid (Progress · URLs scanned/discovered · Bugs · Elapsed) — URL stat shows `X of Y discovered`, Elapsed ticks every second via `useEffect(setInterval, 1000)` while status is running/requested. Cancel button when active. View HTML / Download PDF / System health buttons when complete (System health appears only if `run.systemHealthPath` is set). |
 | `components/LogStream.tsx` | Terminal-style log panel. Color-coded by line source: persona = amber, playwright = lavender, errors = coral, successes = teal. Auto-scrolls unless the user manually scrolls up. |
 | `components/Diode.tsx` | Status indicator light. Pulses for active states. CSS classes `diode--amber/teal/coral/lav`. |
 | `components/Numeral.tsx` | Editorial italic display number (Instrument Serif). The signature "big number" moment — use sparingly. |

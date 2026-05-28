@@ -9,12 +9,12 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 | run-audit.ts | Parallel launcher: spawns `test:audit` + `discover:agentic` simultaneously, streams labeled output, forwards SIGINT/SIGTERM |
 | crawl.ts | Fetches sitemap via curl, writes `output/url-list.json` |
 | report.ts | Reads bugs.jsonl → noise filter → dedup → html-builder → pdf-exporter |
-| orchestrate.ts | Full pipeline: validate → semantic-dedup → merge+SHA1-dedup → **visual gate** → score → summarise → categorise → HTML/PDF (has own `NOISE_RULE_IDS` — must mirror `report.ts`) |
+| orchestrate.ts | Full pipeline: validate → semantic-dedup → merge+SHA1-dedup → **visual gate** → score → save-history → **dr-marcus-chen meta-analysis** (`runMetaAnalysis()`, writes `output/system-health-<date>.md`) → summarise → categorise → HTML/PDF. Has own `NOISE_RULE_IDS` — must mirror `report.ts` AND `validate.ts`. |
 | reverify.ts | Re-checks open bugs against live pages; captures element screenshots for HTML report. |
 | summarise.ts | LLM summaries per finding (Sonnet for critical/high/medium, Haiku for low) |
 | categorise.ts | Single Haiku call clusters all findings into category labels |
-| discover-agentic.ts | Runs 4 agentic personas (2 concurrent) via Claude tool_use |
-| validate.ts | Validates bugs.jsonl entries against live pages |
+| discover-agentic.ts | Runs **4 page-level personas** (revenue-hawk, skeptical-first-timer, brand-purist, forensic-technician) in 2 batches of 2 via Claude tool_use. **dr-marcus-chen is NOT here** — runs in `orchestrate.ts` as `runMetaAnalysis()`. |
+| validate.ts | Validates bugs.jsonl entries against live pages. Has own `NOISE_RULE_IDS` — pre-filters before Haiku queue so a stale bugs.jsonl doesn't waste 20–40 min of validate time. Must mirror `report.ts` + `orchestrate.ts`. |
 | dismiss.ts | Marks findings as dismissed; excluded from future reports |
 | probe-image-404.ts | Ad-hoc debug script: load any URL, capture CDP `Network.requestWillBeSent` initiator for the broken Replo `cdn/shop/files/?v=…` pattern, walk the live DOM to find the offending element, and run `runImageCheck` against the page. Usage: `npx tsx scripts/probe-image-404.ts [url]`. |
 | runner-daemon.ts | **Long-lived background process**, started by launchd (`com.ryzewith.qaagent.plist`). Listens to `runs` + `diffRequests` collections in Firestore. For each requested run: writes scan config to `data/.ryze-scan-config.json`, spawns `npm run full-audit` (detached process group), streams stdout/stderr + progress + URL counts to Firestore, uploads HTML/PDF/scored-bugs.json/suppressed.html to Storage on completion. For each diff request: downloads both bug JSONs, computes exact-match diff, then sends unmatched piles to Haiku for semantic matching. Cancellation: process-group SIGINT → SIGTERM (8s) → SIGKILL (15s) escalation. Orphan recovery on startup marks any `running` / `cancel-requested` docs as failed. **See root CLAUDE.md "Web UI + Runner daemon" for the full picture.** |
@@ -23,7 +23,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 ## Known noise — rule IDs, hosts, and URL patterns
 
 ### Rule IDs filtered entirely
-**Same list must exist in BOTH `report.ts` AND `orchestrate.ts`** — they are separate code paths:
+**Same list must exist in `report.ts`, `orchestrate.ts`, AND `validate.ts`** — three separate code paths, all consuming raw bugs.jsonl:
 
 - `network:nav-failed` — CDN redirect blocks (formerly Edgemesh, now Cloudflare)
 - `network:429` — rate-limiting our bot
@@ -50,7 +50,7 @@ Entry points for the QA pipeline — `tsx` scripts that orchestrate crawl, audit
 
 ## Gotchas
 
-- **`orchestrate.ts` NOISE_RULE_IDS must mirror `report.ts`** — `orchestrate.ts` calls `buildHtml` directly, bypassing `report.ts`. If you add or remove a rule ID in one, do the same in the other. A shared `src/noise-config.ts` would be the right fix but isn't implemented yet.
+- **`NOISE_RULE_IDS` must stay in lockstep across THREE files** — `report.ts`, `orchestrate.ts`, and `validate.ts` each maintain their own copy. They serve different concerns: report/orchestrate filter at render time, validate filters BEFORE the Haiku call (saves 20–40 min on stale bugs.jsonl). Add a rule ID to one without updating the others and it'll leak into the report. A shared `src/noise-config.ts` would be the right fix but isn't implemented yet.
 - **`reverify.ts` rule prefix is `axe:` not `a11y:`** — the axe check module emits `ruleId: \`axe:${violation.id}\``. `reverify.ts` now uses the correct `axe:` prefix when re-checking WCAG violations.
 - **HTML report `href` URLs need scheme guard, not just escaping** — `escapeHtml()` does not block `javascript:` URIs. `safeSrc()` in `html-builder.ts` rejects anything not matching `https?://`. Do not remove this guard.
 - **Category clustering `max_tokens` must be ≥ 4096** — `categorise.ts` sends all findings in one Haiku call. At 1500 tokens the response truncates at ~115 entries, `JSON.parse` throws, and all bugs silently fall back to rule-prefix categories.

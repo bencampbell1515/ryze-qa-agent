@@ -9,7 +9,7 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 | crawl.spec.ts | Main orchestrator — loops URLs, calls all checks |
 | fixtures/bug-collector.ts | Playwright fixture that accumulates bugs into `data/bugs.jsonl` |
 | checks/a11y.ts | axe-core WCAG violations |
-| checks/console.ts | JS console errors/warnings |
+| checks/console.ts | JS console errors/warnings — **CURRENTLY DISABLED** (2026-05-27). `attachConsoleListeners()` is not called from `crawl.spec.ts` because every `console:error`/`js:pageerror` in headless Chrome is third-party noise. Re-enable only when audits move out of headless + blocked-GTM context. |
 | checks/content.ts | Typos via cspell, broken images |
 | checks/image.ts | Visible `<img src="">`, `<img>` with `naturalWidth === 0`, broken Replo `<picture>` srcset templates |
 | checks/network.ts | Nav failures, 4xx/5xx, 429 rate limits |
@@ -30,8 +30,7 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 - 3 viewports run via Playwright projects (desktop/tablet/mobile); `lighthouse` project early-returns from `@audit` — it's a no-op for the URL audit.
 - ATC flow is wrapped in a 35s `Promise.race` with an `aborted` flag to suppress ghost writes after timeout
 - `ATC_SAMPLE_LIMIT = 5` per project — `resetAtcCount()` is called at the start of each `@audit` run so desktop/tablet/mobile each get their own 5-product budget
-- `attachConsoleListeners` and `attachNetworkListeners` are called **once before the URL loop** — calling them inside the loop adds duplicate listeners that double-count every bug
-- Console errors are captured raw in `checks/console.ts` with no filtering — noise is filtered post-hoc in `scripts/report.ts isNoise()`
+- `attachNetworkListeners` is called **once before the URL loop** — calling it inside the loop adds duplicate listeners that double-count every bug. (`attachConsoleListeners` is no longer called at all — see checks table above.)
 - `test.setTimeout(0)` is required on the audit test — 229 URLs × checks would exceed Playwright's default 30s test timeout almost immediately
 - `flush()` in `bug-collector.ts` skips when `testInfo.status !== 'passed' && testInfo.retry < testInfo.project.retries` — prevents partial-run data from being written before Playwright retries the test
 
