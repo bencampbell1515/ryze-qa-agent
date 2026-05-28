@@ -98,6 +98,16 @@ test.describe('content-rules: checkBrandTerms', () => {
     expect(findings).toHaveLength(0);
   });
 
+  test('negative: brand possessive "RYZE’rs" (curly apostrophe) is not a typo of "RYZErs"', async () => {
+    // The brand writes its possessive with an apostrophe; apostrophes are not
+    // typos. Without normalization this fires on every page.
+    const canonical = canonicalFixture({ brandTerms: ['RYZErs', 'brandambassador'] });
+    const straight = await checkBrandTerms(url, "Calling all RYZE'rs!", canonical, RUN_ID);
+    const curly = await checkBrandTerms(url, 'Calling all RYZE’rs!', canonical, RUN_ID);
+    expect(straight).toHaveLength(0);
+    expect(curly).toHaveLength(0);
+  });
+
   test('edge: 4-letter term "RYZE" with distance match does not fire (too short)', async () => {
     // "Ryzz" is distance 1 from "RYZE" but the canonical term is only 4 chars,
     // below the 6-char floor for distance-1 matches.

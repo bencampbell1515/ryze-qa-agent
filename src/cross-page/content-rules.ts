@@ -35,14 +35,20 @@ function makeId(runId: string, fingerprint: string): string {
   return `f-${runId}-${fingerprint.slice(0, 8)}`;
 }
 
+/** Lowercase and strip apostrophes. Apostrophe variants (straight, curly,
+ *  backtick) and possessive forms like "RYZE'rs" are not typos. */
+function normalizeTerm(s: string): string {
+  return s.toLowerCase().replace(/['’‘`]/g, '');
+}
+
 /**
  * Is `candidate` a near-miss of canonical `term`?
- * Exact (case-insensitive) matches are NOT near-misses — they are correct usage.
- * The length floor is based on the canonical term's length.
+ * Exact matches (after normalization) are NOT near-misses — they are correct
+ * usage. The length floor is based on the canonical term's length.
  */
 function nearMatchDistance(candidate: string, term: string): number | null {
-  const a = candidate.toLowerCase();
-  const b = term.toLowerCase();
+  const a = normalizeTerm(candidate);
+  const b = normalizeTerm(term);
   if (a === b) return null; // correct usage
   const d = distance(a, b);
   if (d === 1 && b.length >= MIN_LEN_DISTANCE_1) return 1;
@@ -125,8 +131,8 @@ export async function checkBrandTerms(
   const findings: Finding[] = [];
   const seen = new Set<string>();
 
-  const variantSet = new Set(canonical.brandVariants.map((v) => v.toLowerCase()));
-  const termSet = new Set(canonical.brandTerms.map((t) => t.toLowerCase()));
+  const variantSet = new Set(canonical.brandVariants.map(normalizeTerm));
+  const termSet = new Set(canonical.brandTerms.map(normalizeTerm));
   const tokens = tokenize(pageText);
 
   for (const term of canonical.brandTerms) {
@@ -135,9 +141,10 @@ export async function checkBrandTerms(
     for (let i = 0; i + wordCount <= tokens.length; i++) {
       const phrase = tokens.slice(i, i + wordCount).join(' ');
       const lower = phrase.toLowerCase();
+      const norm = normalizeTerm(phrase);
 
       // Skip correct usage: exact match to any canonical term or known variant.
-      if (termSet.has(lower) || variantSet.has(lower)) continue;
+      if (termSet.has(norm) || variantSet.has(norm)) continue;
 
       const dist = nearMatchDistance(phrase, term);
       if (dist === null) continue;
@@ -255,7 +262,7 @@ export async function checkUrlTypos(
 ): Promise<Finding[]> {
   const created: Finding[] = [];
   const reg = registry ?? new Map<string, Finding>();
-  const termSet = new Set(canonical.brandTerms.map((t) => t.toLowerCase()));
+  const termSet = new Set(canonical.brandTerms.map(normalizeTerm));
 
   for (const match of pageHtml.matchAll(HREF_RE)) {
     const relPath = inScopePath(match[1], url);
@@ -265,7 +272,7 @@ export async function checkUrlTypos(
 
     for (const rawSegment of pathSegments(relPath)) {
       // URL segments hyphenate multi-word terms; normalize for comparison.
-      const segment = rawSegment.replace(/[-_]+/g, ' ').toLowerCase();
+      const segment = normalizeTerm(rawSegment.replace(/[-_]+/g, ' '));
       if (termSet.has(segment)) continue; // correct usage
 
       let bestTerm: string | null = null;
