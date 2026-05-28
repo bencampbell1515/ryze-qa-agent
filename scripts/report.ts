@@ -33,6 +33,7 @@ const NOISE_RULE_IDS = new Set([
   'js:pageerror',
   'console:error',
   'network:failed',
+  'content:tap-target-too-small',
 ]);
 
 const NOISE_404_URL_PATTERNS = [

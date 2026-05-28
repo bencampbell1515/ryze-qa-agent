@@ -89,6 +89,7 @@ async function main(): Promise<void> {
     'js:pageerror',
     'console:error',
     'network:failed',
+    'content:tap-target-too-small',
   ]);
 
   const playwrightBugs: BugInstance[] = readFileSync(bugsSource, 'utf8')

@@ -108,7 +108,7 @@ export function createTools(
     try {
       if (selector) {
         const html = await page.locator(selector).first().innerHTML({ timeout: 5_000 });
-        return { html };
+        return { html: html.slice(0, 15_000) };
       }
       const html = await page.content();
       return { html: html.slice(0, 15_000) };
