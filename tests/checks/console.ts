@@ -5,6 +5,14 @@ import type { Viewport } from '../../src/types.js';
 /**
  * Re-attach viewport-aware console listeners.
  * Call before page.goto() for each viewport context.
+ *
+ * **CURRENTLY UNUSED** — `crawl.spec.ts` deliberately does not call this. Every
+ * `console:error` and `js:pageerror` captured in headless Chrome is third-party
+ * noise (Popper.js, analytics, jQuery-via-blocked-GTM), and these were producing
+ * ~13k entries per run that then dominated validate.ts's Haiku queue for 20–40
+ * minutes. The function is preserved here in case we ever run audits in a
+ * trusted browser context (headed with extensions disabled, no blocked GTM,
+ * etc.) where these signals would be real. Until then, do not call it.
  */
 export function attachConsoleListeners(
   page: Page,

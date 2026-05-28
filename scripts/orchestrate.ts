@@ -49,6 +49,80 @@ function saveToHistory(fingerprints: string[]): void {
   writeFileSync(HISTORY_PATH, updated.join('\n') + '\n');
 }
 
+/**
+ * Run the dr-marcus-chen meta-analysis persona. He is intentionally NOT in
+ * PERSONA_BATCHES (discover-agentic.ts) because his mandate is meta-level
+ * system health analysis — no browsing, no URL list. Reads dismissed.jsonl,
+ * report-history.jsonl, and this run's scored bugs, sends them to Haiku once,
+ * writes the markdown report to `output/system-health-<date>.md`.
+ *
+ * Soft-fails: any error logs a warning and skips. The main report still ships.
+ */
+async function runMetaAnalysis(
+  client: Anthropic,
+  scoredBugs: ScoredBug[],
+): Promise<void> {
+  const personaPath = join(process.cwd(), 'personas', 'dr-marcus-chen.md');
+  const dismissedPath = join(process.cwd(), 'data', 'dismissed.jsonl');
+
+  if (!existsSync(personaPath)) {
+    console.warn('⚠️  dr-marcus-chen.md not found — skipping meta-analysis');
+    return;
+  }
+
+  const persona = readFileSync(personaPath, 'utf8');
+  const dismissed = existsSync(dismissedPath)
+    ? readFileSync(dismissedPath, 'utf8').split('\n').filter(Boolean)
+    : [];
+  const history = existsSync(HISTORY_PATH)
+    ? readFileSync(HISTORY_PATH, 'utf8').split('\n').filter(Boolean)
+    : [];
+
+  // Compact representation — Marcus needs ruleId + module attribution, not full payloads
+  const currentRunSummary = scoredBugs.map((b) => ({
+    ruleId: b.ruleId,
+    bugClass: b.bugClass,
+    severity: b.severity,
+    source: b.source,
+    fingerprint: computeFingerprint(b.ruleId, b.description, b.urls[0] ?? 'document'),
+  }));
+
+  const userPrompt = [
+    'Data for this run:',
+    '',
+    `## This run's findings (${currentRunSummary.length} total)`,
+    JSON.stringify(currentRunSummary, null, 2).slice(0, 50_000),
+    '',
+    `## Dismissed findings (${dismissed.length} entries from data/dismissed.jsonl)`,
+    dismissed.slice(-200).join('\n'),
+    '',
+    `## Report history (last ${history.length} runs from data/report-history.jsonl)`,
+    history.slice(-3).join('\n'),
+    '',
+    'Produce your structured system health report in markdown per your mandate.',
+  ].join('\n');
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      system: persona,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    const md = response.content
+      .filter((c) => c.type === 'text')
+      .map((c) => (c as { text: string }).text)
+      .join('\n\n');
+
+    const outPath = join(OUTPUT_DIR, `system-health-${DATE}.md`);
+    writeFileSync(outPath, md, 'utf8');
+    console.log(`\n🧠 Meta-analysis (dr-marcus-chen) written to ${outPath}`);
+  } catch (err) {
+    console.warn('⚠️  Meta-analysis failed — continuing:', err instanceof Error ? err.message : err);
+  }
+}
+
 async function runScript(script: string): Promise<void> {
   console.log(`\n▶ Running ${script}...`);
   try {
@@ -207,6 +281,14 @@ async function main(): Promise<void> {
       computeFingerprint(b.ruleId, b.description, b.urls[0] ?? 'document'),
     ),
   );
+
+  // Step 9.5: dr-marcus-chen meta-analysis (system health report).
+  // Runs AFTER saveToHistory so the latest entry is reflected in his trend math.
+  if (client) {
+    await runMetaAnalysis(client, finalScored);
+  } else {
+    console.log('\n⏭️  Skipping meta-analysis (no API key).');
+  }
 
   // Step 10a: Generate plain-English summaries
   const withSummaries = client

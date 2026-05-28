@@ -12,6 +12,20 @@ const DISMISSED_PATH = join(process.cwd(), 'data', 'dismissed.jsonl');
 const OUTPUT_PATH = join(process.cwd(), 'data', 'validated-bugs.jsonl');
 const BATCH_SIZE = 20;
 
+// Rule IDs that report.ts + orchestrate.ts strip later in the pipeline. Filtering
+// here too means validate.ts doesn't waste 20–40 minutes of Haiku calls on bugs
+// the report will throw away anyway. Must stay in lockstep with NOISE_RULE_IDS in
+// report.ts + orchestrate.ts (CLAUDE.md notes a shared module is the right fix).
+const NOISE_RULE_IDS = new Set([
+  'network:nav-failed',
+  'network:429',
+  'network:503',
+  'revenue:no-atc',
+  'js:pageerror',
+  'console:error',
+  'network:failed',
+]);
+
 function loadDismissed(): Set<string> {
   if (!existsSync(DISMISSED_PATH)) return new Set();
   return new Set(
@@ -85,12 +99,18 @@ async function main(): Promise<void> {
   const lines = readFileSync(BUGS_PATH, 'utf8').split('\n').filter(Boolean);
   const bugs: BugInstance[] = lines.map((l) => JSON.parse(l) as BugInstance);
 
-  const active = bugs.filter((b) => {
+  const denoised = bugs.filter((b) => !NOISE_RULE_IDS.has(b.ruleId));
+  const noiseCount = bugs.length - denoised.length;
+
+  const active = denoised.filter((b) => {
     const fp = computeFingerprint(b.ruleId, b.message, b.sectionAnchor ?? 'document', b.dHash);
     return !dismissed.has(fp);
   });
 
-  console.log(`Validating ${active.length} findings (${bugs.length - active.length} dismissed)...`);
+  console.log(
+    `Validating ${active.length} findings ` +
+    `(${noiseCount} noise-rule, ${denoised.length - active.length} dismissed, ${bugs.length} raw)...`,
+  );
 
   const limit = pLimit(BATCH_SIZE);
   const results = await Promise.all(

@@ -10,11 +10,13 @@ const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
 const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
 const OUTPUT_PATH = join(process.cwd(), 'data', 'discoveries.jsonl');
 
-// Three batches: two of 2 personas, one of 1 — matches the max 2 concurrent browser context constraint
+// Two batches of 2 page-level personas — matches the max 2 concurrent browser
+// context constraint. dr-marcus-chen is excluded intentionally: his persona
+// mandate is meta-level system health analysis (no browsing, no URL list), and
+// he runs as a step inside orchestrate.ts after dedup. See runMetaAnalysis().
 const PERSONA_BATCHES = [
   ['revenue-hawk', 'skeptical-first-timer'],
   ['brand-purist', 'forensic-technician'],
-  ['dr-marcus-chen'],
 ];
 
 async function main(): Promise<void> {
@@ -36,7 +38,7 @@ async function main(): Promise<void> {
   const urlList = JSON.parse(readFileSync(URL_LIST_PATH, 'utf8')) as UrlList;
   const totalUrls = Object.values(urlList).flat().length;
 
-  console.log(`\n🔍 Agentic discovery: ${totalUrls} URLs across 5 personas (2 concurrent max)\n`);
+  console.log(`\n🔍 Agentic discovery: ${totalUrls} URLs across 4 page-level personas (2 concurrent max)\n`);
 
   for (const batch of PERSONA_BATCHES) {
     console.log(`\n▶ Batch: ${batch.join(' + ')}`);

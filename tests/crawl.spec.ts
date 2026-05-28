@@ -2,7 +2,6 @@ import { test, expect } from './fixtures/bug-collector.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { discoverUrls } from '../src/crawl/sitemap.js';
-import { attachConsoleListeners } from './checks/console.js';
 import { attachNetworkListeners } from './checks/network.js';
 import { takeScreenshot, triggerLazyLoad } from './checks/visual.js';
 import { runSeoCheck } from './checks/seo.js';
@@ -81,8 +80,13 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     ...urlList.blog,
   ];
 
-  // Attach listeners once — they fire on all navigations within this page
-  attachConsoleListeners(page, bugs, viewport);
+  // Attach listeners once — they fire on all navigations within this page.
+  // attachConsoleListeners() is intentionally NOT called: every js:pageerror /
+  // console:error captured in headless Chrome is third-party noise (Popper.js,
+  // analytics, jQuery-via-blocked-GTM). These flooded bugs.jsonl with ~13k
+  // entries per run, all of which then hit validate.ts's Haiku queue at
+  // pLimit(20) for 20–40 minutes before being filtered downstream. Killed at
+  // the source. See CLAUDE.md "Known noise" + tests/checks/console.ts header.
   attachNetworkListeners(page, bugs, viewport);
 
   for (const url of allUrls) {
