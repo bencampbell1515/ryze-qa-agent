@@ -30,6 +30,7 @@ export type Run = {
   errorMessage?: string;
   scanConfig?: ScanConfig;
   bugsJsonPath?: string; // gs:// path to scored-bugs.json (used by diff view)
+  systemHealthPath?: string; // gs:// path to system-health.md (dr-marcus-chen meta-analysis)
 };
 
 export type RunEvent = {

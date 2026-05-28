@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cancelRun, getArtifactDownloadUrl, useRun } from "@/lib/runs";
 import { duration, fullTime, relativeTime } from "@/lib/format";
 import { Diode } from "./Diode";
@@ -31,6 +31,16 @@ function shortId(id: string): string {
 export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   const { run, loading } = useRun(runId);
   const [cancelling, setCancelling] = useState(false);
+  // 1Hz re-render driver so `duration(startedAt, undefined)` recomputes against
+  // a fresh `new Date()` and the elapsed string ticks live. Only runs while the
+  // audit is in flight — once it completes, `completedAt` pins the value.
+  const [, setNowTick] = useState(0);
+  const tickActive = run?.status === "running" || run?.status === "requested";
+  useEffect(() => {
+    if (!tickActive) return;
+    const id = setInterval(() => setNowTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [tickActive]);
 
   if (loading) {
     return (
@@ -127,6 +137,13 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
                   tone="ink"
                   label="Download PDF"
                 />
+                {run.systemHealthPath && (
+                  <BracketButton
+                    onClick={() => openArtifact(run.systemHealthPath)}
+                    tone="ink"
+                    label="System health"
+                  />
+                )}
               </>
             )}
           </div>
@@ -155,11 +172,13 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
             label={isActive && run.step === "audit" ? "URLs scanned" : "URLs discovered"}
             value={
               isActive && run.step === "audit" && typeof run.urlsScanned === "number"
-                ? `${run.urlsScanned}`
+                ? `${Math.min(run.urlsScanned, run.urlCount ?? run.urlsScanned)}`
                 : `${run.urlCount ?? "—"}`
             }
             sub={
-              isActive && run.step === "audit" && run.urlCount
+              isActive && run.step === "audit" && run.urlCount && typeof run.urlsScanned === "number"
+                ? `of ${run.urlCount} discovered`
+                : isActive && run.step === "audit" && run.urlCount
                 ? `crawl pass · ${run.urlCount} total`
                 : "www + shop · post-crawl"
             }

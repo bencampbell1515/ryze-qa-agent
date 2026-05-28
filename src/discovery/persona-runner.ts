@@ -105,7 +105,13 @@ export async function runPersona(opts: {
         model: PERSONA_MODEL[personaName] ?? 'claude-sonnet-4-6',
       });
 
-      for (const url of result.visitedUrls) visited.add(url);
+      for (const url of result.visitedUrls) {
+        visited.add(url);
+        // Emit one line per distinct URL so the runner daemon can count the
+        // union across personas (rather than summing per-persona deltas,
+        // which over-counts when N personas walk the same list).
+        console.log(`  [${personaName}] visited ${url}`);
+      }
 
       console.log(
         `  [${personaName}] Session ${sessionNum}: visited ${result.visitedUrls.length} URLs, ${result.toolCallCount} tool calls`
@@ -121,5 +127,9 @@ export async function runPersona(opts: {
     await browser.close();
   }
 
+  // Final "0 URLs remaining" line — lets the runner daemon's progress tracker
+  // see this persona reach 0 cleanly, instead of getting stuck at the last
+  // session's leftover count (typically the SESSION_BUDGET=7 final batch).
+  console.log(`  [${personaName}] Session ${sessionNum + 1}: 0 URLs remaining`);
   console.log(`  ✅ [${personaName}] Complete after ${sessionNum} sessions`);
 }

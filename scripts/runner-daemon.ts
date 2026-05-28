@@ -174,7 +174,7 @@ if (!anthropic) {
 // State
 // ---------------------------------------------------------------------------
 
-type PersonaState = { initial: number; current: number };
+type PersonaState = { initial: number; current: number; visited: Set<string> };
 
 type ActiveRun = {
   id: string;
@@ -189,6 +189,8 @@ type ActiveRun = {
   personas: Map<string, PersonaState>;
   progressPercent: number;
   killEscalationTimers: NodeJS.Timeout[];
+  // union of distinct URLs visited across all personas (for correct counter)
+  distinctUrlsVisited: Set<string>;
 };
 
 let activeRun: ActiveRun | null = null;
@@ -234,11 +236,13 @@ function scheduleLogFlush(run: ActiveRun) {
     run.flushTimer = null;
     try {
       const urlsScanned = computeUrlsScanned(run);
+      const bugCount = await readLiveBugCount();
       await setRun(run.id, {
         logTail: run.logTail.slice(-LOG_TAIL_MAX),
         progress: run.progressPercent,
         ...(run.urlCount ? { urlCount: run.urlCount } : {}),
         ...(urlsScanned !== null ? { urlsScanned } : {}),
+        ...(typeof bugCount === "number" ? { bugCount } : {}),
         logUpdatedAt: FieldValue.serverTimestamp(),
       });
     } catch (e) {
@@ -249,11 +253,14 @@ function scheduleLogFlush(run: ActiveRun) {
 
 function parseStep(line: string): { step: string; progress: number } | null {
   const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
-  if (/> ryze-qa@.* clean$/.test(stripped))        return { step: "queued",      progress: 5  };
-  if (/> ryze-qa@.* test:crawl$/.test(stripped))   return { step: "crawl",       progress: 10 };
+  if (/> ryze-qa@.* clean$/.test(stripped))        return { step: "queued",      progress: 3  };
+  if (/> ryze-qa@.* test:crawl$/.test(stripped))   return { step: "crawl",       progress: 8  };
   if (/> ryze-qa@.* test:audit$|playwright test/.test(stripped))
-                                                   return { step: "audit",       progress: 30 };
-  if (/> ryze-qa@.* orchestrate$/.test(stripped))  return { step: "orchestrate", progress: 90 };
+                                                   return { step: "audit",       progress: 20 };
+  // Orchestrate (validate + semantic-dedup + visual gate + score + summarise +
+  // categorise + HTML/PDF) realistically takes 10–60 min on a full run, so it
+  // deserves the back half of the progress bar — not 10%.
+  if (/> ryze-qa@.* orchestrate$/.test(stripped))  return { step: "orchestrate", progress: 60 };
   return null;
 }
 
@@ -277,7 +284,7 @@ function parseProgressSignals(run: ActiveRun, line: string): boolean {
     const remaining = parseInt(personaLine[2], 10);
     const existing = run.personas.get(name);
     if (!existing) {
-      run.personas.set(name, { initial: remaining, current: remaining });
+      run.personas.set(name, { initial: remaining, current: remaining, visited: new Set() });
     } else {
       existing.current = remaining;
       // A new session may briefly show a fresh "remaining" count after a session ends —
@@ -287,29 +294,66 @@ function parseProgressSignals(run: ActiveRun, line: string): boolean {
     return true;
   }
 
+  // `[persona-name] visited https://...` — track distinct URLs across personas
+  const visitedLine = stripped.match(/\[([\w-]+)\]\s+visited\s+(\S+)/);
+  if (visitedLine) {
+    const name = visitedLine[1];
+    const url = visitedLine[2];
+    run.distinctUrlsVisited.add(url);
+    const persona = run.personas.get(name);
+    if (persona) persona.visited.add(url);
+    return true;
+  }
+
   return false;
 }
 
-/** Sum of (initial − current) across all personas, or null if none yet. */
+/**
+ * Count of distinct URLs visited across all personas (union, not sum). Falls back
+ * to (initial − current) sum if no `visited` lines have been emitted yet — keeps
+ * the counter working in mixed deployments where the runner is updated but the
+ * persona-runner code hasn't been redeployed yet.
+ */
 function computeUrlsScanned(run: ActiveRun): number | null {
+  if (run.distinctUrlsVisited.size > 0) return run.distinctUrlsVisited.size;
   if (run.personas.size === 0) return null;
   let scanned = 0;
   for (const p of run.personas.values()) scanned += Math.max(0, p.initial - p.current);
+  // Cap at urlCount: when summing across personas, the value can balloon past
+  // the discovered total (e.g. 5 personas × 231 URLs).
+  if (run.urlCount > 0 && scanned > run.urlCount) scanned = run.urlCount;
   return scanned;
 }
 
-/** Compute the audit-phase percent based on persona progress. Maps to 30..85. */
+/**
+ * Compute the audit-phase percent based on persona progress. Maps to 20..58
+ * — audit + crawl together fill the first ~60% of the bar, leaving 60..100 for
+ * orchestrate (validate + dedup + visual gate + score + summarise + categorise
+ * + report build), which on a real run takes 10–60 minutes and used to be
+ * compressed into a single percent of the bar.
+ *
+ * Prefers the distinct-URL count for fraction when available (more accurate),
+ * since with N personas walking the same list the per-persona sums overcount.
+ */
 function computeAuditPercent(run: ActiveRun): number {
-  if (run.personas.size === 0) return 30;
+  const AUDIT_FLOOR = 20;
+  const AUDIT_CEILING = 58;
+  const RANGE = AUDIT_CEILING - AUDIT_FLOOR;
+
+  if (run.urlCount > 0 && run.distinctUrlsVisited.size > 0) {
+    const frac = Math.min(1, run.distinctUrlsVisited.size / run.urlCount);
+    return Math.round(AUDIT_FLOOR + frac * RANGE);
+  }
+  if (run.personas.size === 0) return AUDIT_FLOOR;
   let totalInitial = 0;
   let totalCurrent = 0;
   for (const p of run.personas.values()) {
     totalInitial += p.initial;
     totalCurrent += p.current;
   }
-  if (totalInitial === 0) return 30;
+  if (totalInitial === 0) return AUDIT_FLOOR;
   const frac = Math.max(0, Math.min(1, (totalInitial - totalCurrent) / totalInitial));
-  return Math.round(30 + frac * 55);
+  return Math.round(AUDIT_FLOOR + frac * RANGE);
 }
 
 async function findLatestArtifact(extension: "html" | "pdf", since: Date): Promise<string | null> {
@@ -349,6 +393,49 @@ async function readBugCount(): Promise<number | undefined> {
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * Count non-empty lines in a JSONL file. Returns 0 if the file doesn't exist
+ * or is unreadable — this runs every flush tick so it must never throw.
+ */
+async function countJsonlLines(path: string): Promise<number> {
+  if (!existsSync(path)) return 0;
+  try {
+    const raw = await readFile(path, "utf-8");
+    let count = 0;
+    let i = 0;
+    while (i < raw.length) {
+      const nl = raw.indexOf("\n", i);
+      const end = nl === -1 ? raw.length : nl;
+      // Non-empty line = at least one non-whitespace char
+      for (let j = i; j < end; j++) {
+        const c = raw.charCodeAt(j);
+        if (c !== 32 && c !== 9 && c !== 13) { count++; break; }
+      }
+      if (nl === -1) break;
+      i = nl + 1;
+    }
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Live, pre-orchestrate bug count: sum of Playwright bugs.jsonl + persona
+ * discoveries.jsonl line counts. After orchestrate runs, scored-bugs.json is
+ * the authoritative count — but during a run, we want the UI to show something
+ * other than `—` for hours. Tiny over-count (raw, pre-dedup) is acceptable;
+ * the final value at completion comes from scored-bugs.json.
+ */
+async function readLiveBugCount(): Promise<number | undefined> {
+  const scored = await readBugCount();
+  if (typeof scored === "number") return scored;
+  const bugs = await countJsonlLines(join(REPO_ROOT, "data", "bugs.jsonl"));
+  const disc = await countJsonlLines(join(REPO_ROOT, "data", "discoveries.jsonl"));
+  if (bugs === 0 && disc === 0) return undefined;
+  return bugs + disc;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +508,7 @@ async function executeRun(runId: string) {
     personas: new Map(),
     progressPercent: 0,
     killEscalationTimers: [],
+    distinctUrlsVisited: new Set(),
   };
   activeRun = run;
 
@@ -567,7 +655,9 @@ async function executeRun(runId: string) {
 
   // Suppressed report (visual-gate output) if present
   const dir = join(REPO_ROOT, "output");
-  const suppressedEntries = (await readdir(dir)).filter(
+  const dirEntries = await readdir(dir);
+
+  const suppressedEntries = dirEntries.filter(
     (f) => /^audit-report-\d{4}-\d{2}-\d{2}-suppressed\.html$/.test(f),
   );
   if (suppressedEntries.length > 0) {
@@ -580,6 +670,23 @@ async function executeRun(runId: string) {
     }
     if (newest) {
       await uploadArtifact(runId, newest.path, "audit-report-suppressed.html", "text/html");
+    }
+  }
+
+  // dr-marcus-chen meta-analysis (written by orchestrate.ts runMetaAnalysis)
+  const healthEntries = dirEntries.filter(
+    (f) => /^system-health-\d{4}-\d{2}-\d{2}\.md$/.test(f),
+  );
+  if (healthEntries.length > 0) {
+    let newest: { path: string; mtime: number } | null = null;
+    for (const name of healthEntries) {
+      const p = join(dir, name);
+      const s = await stat(p);
+      if (s.mtimeMs < startTs.getTime()) continue;
+      if (!newest || s.mtimeMs > newest.mtime) newest = { path: p, mtime: s.mtimeMs };
+    }
+    if (newest) {
+      updates.systemHealthPath = await uploadArtifact(runId, newest.path, "system-health.md", "text/markdown");
     }
   }
 
