@@ -1,0 +1,26 @@
+{
+  "businessAddresses": [
+    "RYZE, INC., 600 Congress Ave., Fl. 14, Austin, TX 78701"
+  ],
+  "supportEmail": "hello@ryzesuperfoods.com",
+  "brandName": "RYZE",
+  "brandVariants": ["RYZE", "Ryze"],
+  "acceptableCopyrightYears": [2025, 2026],
+  "localePathPrefixes": {
+    "es": "/es/",
+    "fr": "/fr/"
+  },
+  "brandTerms": [
+    "brandambassador",
+    "ambassador",
+    "mushroom coffee",
+    "mushroom matcha",
+    "mushroom hot cocoa",
+    "mushroom chai",
+    "mushroom chicory",
+    "RYZE",
+    "RYZErs",
+    "ritual set",
+    "starter kit"
+  ]
+}

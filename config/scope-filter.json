@@ -1,0 +1,14 @@
+{
+  "denyPatterns": [
+    "/products/copy-of-",
+    "/luka/cro-tests/",
+    "/bridge/",
+    "/debug/",
+    "/admin/",
+    "/account/login",
+    "/account/register",
+    "/cart/mc-ca",
+    "/cart/mc01-dynamic"
+  ],
+  "allowOverrides": []
+}

@@ -1,3 +1,15 @@
+## For worktree sessions
+
+If you are running in a worktree and the task is "build worktree X", your
+first step is to read `tasks/worktree-X-*.md` for the specific spec, then
+`src/types/finding.ts` for the shared interface, then
+`docs/check-author-guide.md` for conventions. Only then read the rest of
+this file.
+
+The worktree brief is authoritative. If something in this file or
+`README.md` conflicts with the brief, the brief wins. Surface the conflict
+on the PR.
+
 # Ryze QA Agent
 
 Automated bug-hunting agent that crawls **ryzesuperfoods.com** and **shop.ryzesuperfoods.com**, deduplicates bugs by Shopify section, and produces an HTML + PDF audit report.
