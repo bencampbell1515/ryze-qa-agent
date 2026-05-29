@@ -1,4 +1,5 @@
 import { test, expect, chromium } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import { runTapTargetsCheck } from '../checks/tap-targets.js';
 
 const fakeBugs = () => {
@@ -138,6 +139,21 @@ test.describe('tap-targets: runTapTargetsCheck', () => {
     await runTapTargetsCheck(page, bugs as any, 'mobile');
     // The label wraps the checkbox with pointer cursor and adequate size
     expect(bugs.collected).toHaveLength(0);
+    await browser.close();
+  });
+
+  test('crop: flagged tap target carries a tight element crop (elementScreenshot set + file exists)', async () => {
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: false });
+    await page.setContent(`<!DOCTYPE html><html><body style="margin:0">
+      <button style="position:absolute;top:100px;left:40px;width:20px;height:20px">X</button>
+    </body></html>`);
+    const bugs = fakeBugs();
+    await runTapTargetsCheck(page, bugs as any, 'mobile');
+    expect(bugs.collected.length).toBeGreaterThanOrEqual(1);
+    const shot = bugs.collected[0].elementScreenshot;
+    expect(typeof shot).toBe('string');
+    expect(existsSync(shot)).toBe(true);
     await browser.close();
   });
 });

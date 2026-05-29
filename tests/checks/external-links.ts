@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { captureBugCrop } from '../../src/crops/bug-crop.js';
 
 /**
  * Walks the DOM for all <a target="_blank"> elements and flags those missing
@@ -25,6 +26,8 @@ export async function runExternalLinksCheck(
     missingNoreferrer: boolean;
     selectorPath: string;
     outerHTML: string;
+    /** Sequence tagged onto the live element via data-ryze-crop, for cropping. */
+    cropId: number;
   };
 
   const hits = (await page.evaluate(`
@@ -88,11 +91,14 @@ export async function runExternalLinksCheck(
         var rel = a.getAttribute('rel') || '';
         if (!hasToken(rel, 'noopener')) {
           seen.add(href);
+          var cid = out.length;
+          a.setAttribute('data-ryze-crop', String(cid));
           out.push({
             href: href,
             missingNoreferrer: !hasToken(rel, 'noreferrer'),
             selectorPath: pathOf(a),
             outerHTML: a.outerHTML.slice(0, 300),
+            cropId: cid,
           });
         }
       }
@@ -103,6 +109,12 @@ export async function runExternalLinksCheck(
 
   for (const hit of hits) {
     const suffix = hit.missingNoreferrer ? ' (also missing noreferrer)' : '';
+    const elementScreenshot =
+      (await captureBugCrop(
+        page,
+        { kind: 'locator', locator: page.locator(`[data-ryze-crop="${hit.cropId}"]`) },
+        { url, ruleId: 'security:link-noopener-missing', viewport, seq: hit.cropId },
+      )) ?? undefined;
     bugs.add({
       ruleId: 'security:link-noopener-missing',
       severity: 'medium',
@@ -112,6 +124,7 @@ export async function runExternalLinksCheck(
       viewport,
       selector: hit.selectorPath,
       outerHTMLSnippet: hit.outerHTML,
+      elementScreenshot,
     });
   }
 }

@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { captureBugCrop } from '../../src/crops/bug-crop.js';
 
 /**
  * Detects images that render as nothing without firing a network error:
@@ -32,6 +33,8 @@ export async function runImageCheck(
     outerHTML: string;
     box: { x: number; y: number; w: number; h: number };
     extra?: string;
+    /** Sequence tagged onto the live element via data-ryze-crop, for cropping. */
+    cropId: number;
   };
 
   // Two-pass collection to suppress race-condition false positives on `zero-natural`:
@@ -146,10 +149,13 @@ export async function runImageCheck(
         var freshRect = c.el.getBoundingClientRect();
         var topY = freshRect.top + window.scrollY;
         if (topY > VIEWPORT_CUTOFF) continue; // below the fold → not a visible UX bug
-        // strip the element reference before returning across the bridge
+        // Tag the live element so the Node side can resolve a locator and crop it,
+        // then strip the element reference before returning across the bridge.
+        var cid = out.length;
+        c.el.setAttribute('data-ryze-crop', String(cid));
         out.push({
           kind: c.kind, selectorPath: c.selectorPath, outerHTML: c.outerHTML,
-          box: c.box, extra: c.extra,
+          box: c.box, extra: c.extra, cropId: cid,
         });
       }
       return out;
@@ -157,9 +163,23 @@ export async function runImageCheck(
   `)) as Hit[];
 
   for (const hit of hits) {
+    const ruleId =
+      hit.kind === 'empty-src' ? 'content:empty-image-src'
+      : hit.kind === 'zero-natural' ? 'content:broken-image'
+      : 'content:broken-picture-template';
+
+    // Crop the flagged element (tagged with data-ryze-crop in the evaluate).
+    // captureBugCrop never throws — returns null if the element can't be cropped.
+    const elementScreenshot =
+      (await captureBugCrop(
+        page,
+        { kind: 'locator', locator: page.locator(`[data-ryze-crop="${hit.cropId}"]`) },
+        { url, ruleId, viewport, seq: hit.cropId },
+      )) ?? undefined;
+
     if (hit.kind === 'empty-src') {
       bugs.add({
-        ruleId: 'content:empty-image-src',
+        ruleId,
         severity: 'high',
         bugClass: 'content',
         message: `Visible <img> with empty src renders as a blank ${hit.box.w}×${hit.box.h} box (no broken-image icon shown). Likely a template binding to a null/missing field.`,
@@ -167,10 +187,11 @@ export async function runImageCheck(
         viewport,
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
+        elementScreenshot,
       });
     } else if (hit.kind === 'zero-natural') {
       bugs.add({
-        ruleId: 'content:broken-image',
+        ruleId,
         severity: 'high',
         bugClass: 'content',
         message: `Visible <img> loaded but renders empty (naturalWidth=0) at ${hit.box.w}×${hit.box.h}. ${hit.extra ?? ''}`,
@@ -178,10 +199,11 @@ export async function runImageCheck(
         viewport,
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
+        elementScreenshot,
       });
     } else if (hit.kind === 'broken-picture-template') {
       bugs.add({
-        ruleId: 'content:broken-picture-template',
+        ruleId,
         severity: 'high',
         bugClass: 'content',
         message: `Visible <picture> with empty filename in srcset (cdn/shop/files/?v=…). Replo/page-builder block bound to a missing metafield. ${hit.extra ?? ''}`,
@@ -189,6 +211,7 @@ export async function runImageCheck(
         viewport,
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
+        elementScreenshot,
       });
     }
   }

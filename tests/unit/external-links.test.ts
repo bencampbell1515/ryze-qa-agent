@@ -1,4 +1,5 @@
 import { test, expect, chromium } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import { runExternalLinksCheck } from '../checks/external-links.js';
 
 const fakeBugs = () => {
@@ -125,6 +126,21 @@ test.describe('external-links: runExternalLinksCheck', () => {
     // but the suffix "(also missing noreferrer)" should NOT appear
     expect(bugs.collected).toHaveLength(1);
     expect(bugs.collected[0].message).not.toContain('also missing noreferrer');
+    await browser.close();
+  });
+
+  test('crop: flagged link carries a tight element crop (elementScreenshot set + file exists)', async () => {
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 1, isMobile: false });
+    await page.setContent(`<!DOCTYPE html><html><body style="margin:0">
+      <a href="https://example.com" target="_blank" style="position:absolute;top:120px;left:60px">Visit partner</a>
+    </body></html>`);
+    const bugs = fakeBugs();
+    await runExternalLinksCheck(page, bugs as any, 'desktop');
+    expect(bugs.collected).toHaveLength(1);
+    const shot = bugs.collected[0].elementScreenshot;
+    expect(typeof shot).toBe('string');
+    expect(existsSync(shot)).toBe(true);
     await browser.close();
   });
 });
