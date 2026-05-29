@@ -43,6 +43,12 @@ export interface LinkCheckConfig {
   concurrency?: number;
   /** Cache directory. Default ".lycheecache". */
   cacheDir?: string;
+  /** Base URL for resolving root-relative links (`/foo`) in local HTML file
+   *  inputs. Maps to lychee `--base-url`. Required when checking files saved
+   *  from a single origin — e.g. pages fetched via the trusted curl/Chrome
+   *  path because lychee's own HTTP client is blocked by Cloudflare. lychee
+   *  does NOT honor an in-document `<base href>` for local files. */
+  baseUrl?: string;
 }
 
 export interface LinkCheckResult {
@@ -264,6 +270,9 @@ export function buildLycheeArgs(config: LinkCheckConfig): string[] {
   ];
   if (config.includeFragments ?? true) {
     args.push('--include-fragments');
+  }
+  if (config.baseUrl) {
+    args.push('--base-url', config.baseUrl);
   }
   for (const pattern of config.excludePatterns ?? []) {
     args.push('--exclude', pattern);

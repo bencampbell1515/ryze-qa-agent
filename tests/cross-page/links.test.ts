@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { checkLinks, type LycheeExecutor } from '../../src/cross-page/links.js';
+import { checkLinks, buildLycheeArgs, type LycheeExecutor } from '../../src/cross-page/links.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(__dirname, '..', 'fixtures', 'links');
@@ -144,6 +144,27 @@ test('edge: lychee returns non-JSON throws with the raw output in the error', as
       badExec,
     ),
   ).rejects.toThrow(/not json at all/);
+});
+
+test('args: baseUrl maps to --base-url; defaults and excludes are wired', () => {
+  const args = buildLycheeArgs({
+    inputs: ['/tmp/page.html'],
+    internalDomains: ['ryzesuperfoods.com'],
+    baseUrl: 'https://www.ryzesuperfoods.com/',
+    excludePatterns: ['klaviyo\\.com', '/em-cgi/'],
+  });
+  expect(args).toContain('--base-url');
+  expect(args[args.indexOf('--base-url') + 1]).toBe('https://www.ryzesuperfoods.com/');
+  expect(args).toContain('--include-fragments'); // default on
+  expect(args).toContain('--cache');
+  expect(args.join(' ')).toContain('--accept 200..=299,301,302,304,307,308');
+  // each exclude pattern appears after its own --exclude flag
+  expect(args.filter((a) => a === '--exclude')).toHaveLength(2);
+});
+
+test('args: no --base-url flag when baseUrl is omitted', () => {
+  const args = buildLycheeArgs({ inputs: ['https://example.com'], internalDomains: [] });
+  expect(args).not.toContain('--base-url');
 });
 
 test('classification: same broken link flips severity by internalDomains config', async () => {
