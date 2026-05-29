@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
 import { captureBugCrop } from '../../src/crops/bug-crop.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Detects images that render as nothing without firing a network error:
@@ -24,6 +25,7 @@ export async function runImageCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   const url = page.url();
 
@@ -178,7 +180,7 @@ export async function runImageCheck(
       )) ?? undefined;
 
     if (hit.kind === 'empty-src') {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId,
         severity: 'high',
         bugClass: 'content',
@@ -188,9 +190,9 @@ export async function runImageCheck(
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
         elementScreenshot,
-      });
+      }, { title: 'Image with empty src renders blank' });
     } else if (hit.kind === 'zero-natural') {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId,
         severity: 'high',
         bugClass: 'content',
@@ -200,9 +202,9 @@ export async function runImageCheck(
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
         elementScreenshot,
-      });
+      }, { title: 'Image loaded but renders empty' });
     } else if (hit.kind === 'broken-picture-template') {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId,
         severity: 'high',
         bugClass: 'content',
@@ -212,7 +214,7 @@ export async function runImageCheck(
         selector: hit.selectorPath,
         outerHTMLSnippet: hit.outerHTML,
         elementScreenshot,
-      });
+      }, { title: 'Picture srcset has empty filename' });
     }
   }
 }

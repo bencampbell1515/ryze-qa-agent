@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Classifies the state of a search results page based on HTTP status,
@@ -68,6 +69,7 @@ export async function runSearchCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   try {
     const currentUrl = page.url();
@@ -93,32 +95,32 @@ export async function runSearchCheck(
       const classification = classifySearchPage(bodyText, productLinkCount, status);
 
       if (classification === 'http-error') {
-        bugs.add({
+        emitBug(bugs, ctx, {
           ruleId: 'content:search-broken',
           severity: 'high',
           bugClass: 'content',
           message: `Search page returned HTTP ${status} for query "${query}"`,
           url: searchUrl,
           viewport,
-        });
+        }, { title: `Search returned HTTP ${status}` });
       } else if (classification === 'no-results') {
-        bugs.add({
+        emitBug(bugs, ctx, {
           ruleId: `content:search-no-results-for-${slugifyQuery(query)}`,
           severity: 'medium',
           bugClass: 'content',
           message: `Search for "${query}" returned a no-results state`,
           url: searchUrl,
           viewport,
-        });
+        }, { title: `Search returned no results for "${query}"` });
       } else if (classification === 'rendering-broken') {
-        bugs.add({
+        emitBug(bugs, ctx, {
           ruleId: 'content:search-rendering-broken',
           severity: 'high',
           bugClass: 'content',
           message: `Search results page for "${query}" rendered with no products and no no-results message — likely broken layout`,
           url: searchUrl,
           viewport,
-        });
+        }, { title: 'Search results page rendered broken' });
       }
       // If classification === 'ok', no bug is added
     }

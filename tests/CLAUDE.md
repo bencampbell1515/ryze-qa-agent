@@ -66,10 +66,23 @@ export async function runMyCheck(page, bugs, viewport, ctx?: DualWriteContext) {
 - **runId:** the daemon passes `RUN_ID` env → `resolveRunId()`; local runs fall
   back to a date-based id. Fingerprints don't depend on runId (only the finding
   `id` does), so the fallback is cosmetic.
-- **M1 migrated `revenue.ts` only.** M2 migrates the other active emitters
-  (seo, image, network, currency, search, newsletter, external-links,
-  tap-targets, jsonld). `visual.ts` emits nothing (screenshot capture only) — not
-  migrated. Disabled checks (a11y, console, content) are untouched.
+- **M1 migrated `revenue.ts`; M2 migrated the remaining active emitters**
+  (network, seo, image, currency, jsonld, opengraph, newsletter, external-links,
+  tap-targets, search) plus the inline `network:nav-failed` emit in
+  `crawl.spec.ts`. Every active check now threads `ctx?: DualWriteContext` as its
+  4th arg, and `crawl.spec.ts`'s `@audit` test passes `dualWrite` to all of them.
+  `visual.ts` emits nothing (screenshot capture only) — not migrated. Disabled
+  checks (a11y, console, content) are untouched (they have no `bugs.add` calls).
+- **Journeys consolidate into the shared `data/findings.jsonl` (M2).**
+  `createRunContext` in [journeys/_helpers.ts](journeys/_helpers.ts) now defaults
+  its `findingsPath` to `data/findings.jsonl` (was `data/journey-findings.jsonl`)
+  so every v2 Finding — page checks and journeys — lands in one stream.
+  `RYZE_JOURNEY_FINDINGS_PATH` still overrides it for a per-run/isolated file.
+- **Per-check Finding tests.** Checks with a browser-driven `bugs.add` test got
+  ONE parallel `findings.add` assertion in that test. Checks without one
+  (network, seo, newsletter, search — plus revenue from M1) got a dedicated
+  `tests/unit/<check>-finding.test.ts` that drives the real check with a
+  `FindingCollector` and asserts both streams.
 
 ## Gotchas
 

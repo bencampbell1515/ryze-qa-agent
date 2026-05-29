@@ -1,6 +1,7 @@
 import { test, expect, chromium } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { runImageCheck } from '../checks/image.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -15,8 +16,11 @@ test.describe('image: runImageCheck', () => {
       <img src="" style="display:block;width:120px;height:90px;background:#cccccc">
     </body></html>`);
     const bugs = fakeBugs();
-    await runImageCheck(page, bugs as any, 'desktop');
+    const findings = createFindingCollector(undefined, 'run-img'); // in-memory; never flushed
+    await runImageCheck(page, bugs as any, 'desktop', { findings, runId: 'run-img' });
     expect(bugs.collected.find((b: any) => b.ruleId === 'content:empty-image-src')).toBeDefined();
+    // worktree M2 dual-write: the same issue lands in the Finding stream.
+    expect(findings.all().find((f) => f.ruleId === 'content:empty-image-src')).toBeDefined();
     await browser.close();
   });
 

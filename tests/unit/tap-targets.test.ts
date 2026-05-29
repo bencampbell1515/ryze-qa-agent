@@ -1,6 +1,7 @@
 import { test, expect, chromium } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { runTapTargetsCheck } from '../checks/tap-targets.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -16,12 +17,15 @@ test.describe('tap-targets: runTapTargetsCheck', () => {
       <button style="width:20px;height:20px;display:block;">X</button>
     </body></html>`);
     const bugs = fakeBugs();
-    await runTapTargetsCheck(page, bugs as any, 'mobile');
+    const findings = createFindingCollector(undefined, 'run-tap'); // in-memory; never flushed
+    await runTapTargetsCheck(page, bugs as any, 'mobile', { findings, runId: 'run-tap' });
     expect(bugs.collected.length).toBeGreaterThanOrEqual(1);
     const bug = bugs.collected[0];
     expect(bug.ruleId).toBe('content:tap-target-too-small');
     expect(bug.severity).toBe('medium');
     expect(bug.message).toContain('mobile');
+    // worktree M2 dual-write: the same issue lands in the Finding stream.
+    expect(findings.all().find((f) => f.ruleId === 'content:tap-target-too-small')).toBeDefined();
     await browser.close();
   });
 

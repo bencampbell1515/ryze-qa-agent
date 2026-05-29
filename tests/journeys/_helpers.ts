@@ -194,8 +194,12 @@ export function journeyFingerprint(
 
 /**
  * A run's findings stream. Mirrors the orchestrate convention of JSONL files
- * under data/ (one JSON object per line). The path is overridable via
- * RYZE_JOURNEY_FINDINGS_PATH so a CI/daemon run can redirect it per-run.
+ * under data/ (one JSON object per line). worktree M2 consolidates journeys
+ * into the shared `data/findings.jsonl` (the same stream the migrated page
+ * checks write via FindingCollector) so all v2 Findings live in one file. The
+ * path is still overridable via RYZE_JOURNEY_FINDINGS_PATH so a CI/daemon run
+ * can redirect it per-run (and so a run that wants journeys isolated can keep
+ * them in their own file).
  */
 export interface RunContext {
   runId: string;
@@ -211,7 +215,7 @@ export function createRunContext(label = 'journey'): RunContext {
   const runId = `journey-${label}-${timestampSlug()}-${Math.random().toString(36).slice(2, 6)}`;
   const findingsPath =
     process.env.RYZE_JOURNEY_FINDINGS_PATH ??
-    join(process.cwd(), 'data', 'journey-findings.jsonl');
+    join(process.cwd(), 'data', 'findings.jsonl');
   return { runId, findingsPath, findings: [] };
 }
 

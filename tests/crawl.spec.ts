@@ -14,6 +14,7 @@ import { runNewsletterCheck } from './checks/newsletter.js';
 import { runSearchCheck } from './checks/search.js';
 import { runExternalLinksCheck } from './checks/external-links.js';
 import { runTapTargetsCheck } from './checks/tap-targets.js';
+import { emitBug } from './checks/_emit.js';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -54,8 +55,10 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
 
   // worktree M: dual-write context handed to migrated checks. They emit the
   // legacy BugInstance (unchanged) AND a canonical Finding into findings.jsonl.
-  // M1 migrates revenue.ts only; the other checks keep their 3-arg signature
-  // until M2. runId is shared across desktop/tablet/mobile within one audit.
+  // M1 migrated revenue.ts; M2 migrated the remaining active emitters (network,
+  // seo, image, currency, jsonld, opengraph, newsletter, external-links,
+  // tap-targets, search) plus the inline network:nav-failed emit below. runId is
+  // shared across desktop/tablet/mobile within one audit.
   const dualWrite = { findings, runId: resolveRunId() };
 
   // ACCUM-003: The 'lighthouse' project runs Lighthouse perf scores, not the general
@@ -93,12 +96,13 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
   // entries per run, all of which then hit validate.ts's Haiku queue at
   // pLimit(20) for 20–40 minutes before being filtered downstream. Killed at
   // the source. See CLAUDE.md "Known noise" + tests/checks/console.ts header.
-  attachNetworkListeners(page, bugs, viewport);
+  attachNetworkListeners(page, bugs, viewport, dualWrite);
 
   for (const url of allUrls) {
     const navOk = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => true).catch((err: Error) => {
-      bugs.add({ ruleId: 'network:nav-failed', severity: 'high', bugClass: 'network',
-        message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport });
+      emitBug(bugs, dualWrite, { ruleId: 'network:nav-failed', severity: 'high', bugClass: 'network',
+        message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport },
+        { title: 'Page navigation failed' });
       return false;
     });
     if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {}); continue; }
@@ -112,14 +116,14 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
 
     await triggerLazyLoad(page);
 
-    await runSeoCheck(page, bugs, viewport);
-    await runImageCheck(page, bugs, viewport);
-    await runCurrencyCheck(page, bugs, viewport).catch(() => {});
-    await runJsonLdCheck(page, bugs, viewport).catch(() => {});
-    await runOpenGraphCheck(page, bugs, viewport).catch(() => {});
-    await runNewsletterCheck(page, bugs, viewport).catch(() => {});
-    await runExternalLinksCheck(page, bugs, viewport).catch(() => {});
-    await runTapTargetsCheck(page, bugs, viewport).catch(() => {});
+    await runSeoCheck(page, bugs, viewport, dualWrite);
+    await runImageCheck(page, bugs, viewport, dualWrite);
+    await runCurrencyCheck(page, bugs, viewport, dualWrite).catch(() => {});
+    await runJsonLdCheck(page, bugs, viewport, dualWrite).catch(() => {});
+    await runOpenGraphCheck(page, bugs, viewport, dualWrite).catch(() => {});
+    await runNewsletterCheck(page, bugs, viewport, dualWrite).catch(() => {});
+    await runExternalLinksCheck(page, bugs, viewport, dualWrite).catch(() => {});
+    await runTapTargetsCheck(page, bugs, viewport, dualWrite).catch(() => {});
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport, dualWrite);
@@ -135,7 +139,7 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
   // Targets www.ryzesuperfoods.com only (shop. is Hydrogen, no /search endpoint).
   try {
     await page.goto('https://www.ryzesuperfoods.com/', { waitUntil: 'load', timeout: 30_000 });
-    await runSearchCheck(page, bugs, viewport);
+    await runSearchCheck(page, bugs, viewport, dualWrite);
   } catch {
     // Search check failure is non-fatal — don't abort the audit's bug flush.
   }

@@ -1,5 +1,6 @@
 import { test, expect, chromium } from '@playwright/test';
 import { runJsonLdCheck } from '../checks/jsonld.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -11,8 +12,11 @@ test('jsonld: parse failure → seo:jsonld-malformed', async () => {
   const page = await browser.newPage();
   await page.setContent(`<!DOCTYPE html><html><head><script type="application/ld+json">{ not valid json</script></head><body></body></html>`);
   const bugs = fakeBugs();
-  await runJsonLdCheck(page, bugs as any, 'desktop');
+  const findings = createFindingCollector(undefined, 'run-ld'); // in-memory; never flushed
+  await runJsonLdCheck(page, bugs as any, 'desktop', { findings, runId: 'run-ld' });
   expect(bugs.collected.find((b: any) => b.ruleId === 'seo:jsonld-malformed')).toBeDefined();
+  // worktree M2 dual-write: the same issue lands in the Finding stream.
+  expect(findings.all().find((f) => f.ruleId === 'seo:jsonld-malformed')).toBeDefined();
   await browser.close();
 });
 

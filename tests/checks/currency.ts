@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Detects mixed currency formats on a page.
@@ -21,6 +22,7 @@ export async function runCurrencyCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   const url = page.url();
 
@@ -90,13 +92,13 @@ export async function runCurrencyCheck(
 
   if ((hasCanonical && hasLoose) || hasOther) {
     const sample = tokens.slice(0, 3).map((t) => t.text).join(', ');
-    bugs.add({
+    emitBug(bugs, ctx, {
       ruleId: 'content:currency-format-inconsistent',
       severity: 'medium',
       bugClass: 'content',
       message: `Mixed currency formats on page: ${sample}`,
       url,
       viewport,
-    });
+    }, { title: 'Mixed currency formats on page' });
   }
 }

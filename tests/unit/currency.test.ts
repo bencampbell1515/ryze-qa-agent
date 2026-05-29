@@ -1,5 +1,6 @@
 import { test, expect, chromium } from '@playwright/test';
 import { runCurrencyCheck } from '../checks/currency.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -16,8 +17,11 @@ test('currency: mixed canonical and loose formats → content:currency-format-in
     </div>
   </body></html>`);
   const bugs = fakeBugs();
-  await runCurrencyCheck(page, bugs as any, 'desktop');
+  const findings = createFindingCollector(undefined, 'run-cur'); // in-memory; never flushed
+  await runCurrencyCheck(page, bugs as any, 'desktop', { findings, runId: 'run-cur' });
   expect(bugs.collected.find((b: any) => b.ruleId === 'content:currency-format-inconsistent')).toBeDefined();
+  // worktree M2 dual-write: the same issue lands in the Finding stream.
+  expect(findings.all().find((f) => f.ruleId === 'content:currency-format-inconsistent')).toBeDefined();
   await browser.close();
 });
 
