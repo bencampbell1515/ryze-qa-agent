@@ -14,7 +14,8 @@ import {
 import { ref, getDownloadURL } from "firebase/storage";
 import { useEffect, useState } from "react";
 import { db, storage } from "./firebase";
-import type { Run, RunEvent } from "./schema";
+import type { Finding, HygieneFinding, Run, RunEvent } from "./schema";
+import { cropDownloadPath, parseJsonl } from "./findings-parse";
 
 export function useRuns(max: number = 50): { runs: Run[]; loading: boolean } {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -104,4 +105,89 @@ export async function cancelRun(runId: string): Promise<void> {
 
 export async function getArtifactDownloadUrl(gsPath: string): Promise<string> {
   return getDownloadURL(ref(storage, gsPath));
+}
+
+// ---------------------------------------------------------------------------
+// v2 Finding stream — Storage JSONL fetch + per-finding crop URLs.
+//
+// There is no pre-existing client-side Storage-fetch pattern (DiffView routes
+// through the daemon + Firestore, not Storage). These build directly on the
+// `getArtifactDownloadUrl` primitive: resolve a token-signed URL, fetch the
+// JSONL, parse line-by-line. Absent/404 artifacts resolve to an empty list so
+// callers (and legacy runs without these fields) render cleanly.
+// ---------------------------------------------------------------------------
+
+async function fetchJsonlArtifact<T>(gsPath: string | undefined): Promise<T[]> {
+  if (!gsPath) return [];
+  try {
+    const url = await getDownloadURL(ref(storage, gsPath));
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    return parseJsonl<T>(await res.text());
+  } catch {
+    // Missing object (404), storage permission hiccup, or network error:
+    // degrade to an empty list rather than crashing the run detail page.
+    return [];
+  }
+}
+
+export function fetchFindings(gsPath: string | undefined): Promise<Finding[]> {
+  return fetchJsonlArtifact<Finding>(gsPath);
+}
+
+export function fetchHygiene(gsPath: string | undefined): Promise<HygieneFinding[]> {
+  return fetchJsonlArtifact<HygieneFinding>(gsPath);
+}
+
+// Session-long cache of resolved crop download URLs, keyed by the full gs://
+// path. Caching the *Promise* (not just the resolved string) also dedupes
+// concurrent in-flight `getDownloadURL` calls when many cards mount at once.
+const cropUrlCache = new Map<string, Promise<string>>();
+
+function resolveCropUrl(gsPath: string): Promise<string> {
+  let p = cropUrlCache.get(gsPath);
+  if (!p) {
+    p = getDownloadURL(ref(storage, gsPath)).catch((e) => {
+      // Don't poison the cache with a rejected promise — a transient failure
+      // shouldn't permanently blank this crop for the rest of the session.
+      cropUrlCache.delete(gsPath);
+      throw e;
+    });
+    cropUrlCache.set(gsPath, p);
+  }
+  return p;
+}
+
+/**
+ * Resolve the token-signed download URL for a finding's crop image.
+ * `cropsPrefix` comes from the run doc; `cropPath` from `finding.crop.path`.
+ * Returns `{ url: null }` (no loading, no error) when there's no crop to show.
+ */
+export function useCropUrl(
+  cropsPrefix: string | undefined,
+  cropPath: string | undefined,
+): { url: string | null; loading: boolean; error?: Error } {
+  const gsPath = cropDownloadPath(cropsPrefix, cropPath);
+  // Initialize from gsPath; cards are keyed by finding id so gsPath is stable
+  // across a card's lifetime and we never need a synchronous in-effect reset.
+  const [state, setState] = useState<{ url: string | null; loading: boolean; error?: Error }>(
+    () => ({ url: null, loading: !!gsPath }),
+  );
+
+  useEffect(() => {
+    if (!gsPath) return;
+    let cancelled = false;
+    resolveCropUrl(gsPath)
+      .then((url) => {
+        if (!cancelled) setState({ url, loading: false });
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setState({ url: null, loading: false, error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gsPath]);
+
+  return state;
 }

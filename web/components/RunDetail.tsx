@@ -6,6 +6,7 @@ import { duration, fullTime, relativeTime } from "@/lib/format";
 import { Diode } from "./Diode";
 import { Numeral } from "./Numeral";
 import { LogStream } from "./LogStream";
+import { FindingsSection } from "./FindingsSection";
 
 const STEP_LABEL: Record<string, string> = {
   queued: "Waiting in queue",
@@ -238,6 +239,10 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
         <div className="mt-6 rise-in rise-delay-3">
           <LogStream lines={run.logTail ?? []} active={isActive} />
         </div>
+
+        {/* Section: structured findings (v2 Finding stream + crops). Renders
+            nothing for legacy runs that predate N1's uploads. */}
+        <FindingsSection run={run} />
       </div>
     </div>
   );
