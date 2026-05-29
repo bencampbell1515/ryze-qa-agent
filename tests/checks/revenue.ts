@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 const PRICE_SELECTORS = [
   '[data-product-price]',
@@ -24,6 +25,7 @@ export async function runRevenueCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   const url = page.url();
 
@@ -35,8 +37,9 @@ export async function runRevenueCheck(
       if (text && /\$\d/.test(text)) { priceFound = true; break; }
     }
     if (!priceFound) {
-      bugs.add({ ruleId: 'revenue:no-price', severity: 'critical', bugClass: 'revenue',
-        message: `No visible price found on ${url}`, url, viewport });
+      emitBug(bugs, ctx, { ruleId: 'revenue:no-price', severity: 'critical', bugClass: 'revenue',
+        message: `No visible price found on ${url}`, url, viewport },
+        { title: 'No visible price on product page' });
     }
 
     // Check Add-to-Cart button presence — wait up to 5s for JS to render it
@@ -44,8 +47,9 @@ export async function runRevenueCheck(
     await atc.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     const atcVisible = await atc.isVisible().catch(() => false);
     if (!atcVisible) {
-      bugs.add({ ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
-        message: `No Add-to-Cart button visible on ${url}`, url, viewport });
+      emitBug(bugs, ctx, { ruleId: 'revenue:no-atc', severity: 'critical', bugClass: 'revenue',
+        message: `No Add-to-Cart button visible on ${url}`, url, viewport },
+        { title: 'No Add-to-Cart button on product page' });
       return;
     }
 
@@ -101,14 +105,14 @@ export async function runRevenueCheck(
               }
             }
             if (counterAfter !== null && counterAfter <= counterBefore) {
-              bugs.add({
+              emitBug(bugs, ctx, {
                 ruleId: 'revenue:cart-counter-no-update',
                 severity: 'high',
                 bugClass: 'revenue',
                 message: `Cart icon counter did not increment after ATC (was ${counterBefore}, still ${counterAfter}) on ${productPageUrl}`,
                 url: productPageUrl,
                 viewport,
-              });
+              }, { title: 'Cart counter did not increment after Add-to-Cart' });
             }
           }
         } catch { /* swallow */ }
@@ -117,7 +121,7 @@ export async function runRevenueCheck(
         const cartUrl = new URL('/cart', productPageUrl).toString();
         await page.goto(cartUrl, { waitUntil: 'load', timeout: 30_000 });
         if (aborted) return; // ATC-002: bail if timeout already fired
-        await runCartChecks(page, bugs, viewport, productPageUrl);
+        await runCartChecks(page, bugs, viewport, productPageUrl, ctx);
         // CONC-003: navigate back so subsequent checks run against product page, not /cart
         await page.goto(productPageUrl, { waitUntil: 'load', timeout: 30_000 });
       };
@@ -134,7 +138,7 @@ export async function runRevenueCheck(
 
   // Run cart checks when navigated directly to /cart
   if (url.includes('/cart')) {
-    await runCartChecks(page, bugs, viewport, url);
+    await runCartChecks(page, bugs, viewport, url, ctx);
   }
 }
 
@@ -153,6 +157,7 @@ async function runCartChecks(
   bugs: BugCollector,
   viewport: Viewport,
   sourceUrl: string,
+  ctx?: DualWriteContext,
 ): Promise<void> {
     // ATC-007: an empty cart has no subtotal and no checkout button by design.
     // Skip checks unless the cart actually contains line items — otherwise direct
@@ -163,8 +168,9 @@ async function runCartChecks(
     const subtotal = await page.locator(SUBTOTAL_SELECTOR)
       .first().textContent().catch(() => null);
     if (!subtotal || !/\$\d/.test(subtotal)) {
-      bugs.add({ ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
-        message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport });
+      emitBug(bugs, ctx, { ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
+        message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport },
+        { title: 'Cart subtotal missing or invalid' });
     }
 
     // ATC-006: prefer the submit button; fall back to anchor only if button absent
@@ -175,8 +181,9 @@ async function runCartChecks(
     const checkoutBtn = btnVisible ? checkoutButton : checkoutAnchor;
     const checkoutEnabled = await checkoutBtn.isEnabled().catch(() => false);
     if (!checkoutEnabled) {
-      bugs.add({ ruleId: 'revenue:checkout-disabled', severity: 'critical', bugClass: 'revenue',
-        message: `Checkout button disabled on cart (came from ${sourceUrl})`, url: page.url(), viewport });
+      emitBug(bugs, ctx, { ruleId: 'revenue:checkout-disabled', severity: 'critical', bugClass: 'revenue',
+        message: `Checkout button disabled on cart (came from ${sourceUrl})`, url: page.url(), viewport },
+        { title: 'Checkout button disabled on cart' });
     }
     // STOP HERE — do not click checkout
 
@@ -223,14 +230,14 @@ async function runCartChecks(
         const priceAfter = subtotalAfter ? parsePrice(subtotalAfter) : 0;
 
         if (priceAfter <= priceBefore) {
-          bugs.add({
+          emitBug(bugs, ctx, {
             ruleId: 'revenue:cart-qty-no-update',
             severity: 'high',
             bugClass: 'revenue',
             message: `Quantity changed from 1 to 2 but subtotal did not update on cart (came from ${sourceUrl})`,
             url: page.url(),
             viewport,
-          });
+          }, { title: 'Cart subtotal did not update on quantity change' });
         }
       }
     } catch { /* swallow per-mutation error */ }
@@ -288,14 +295,14 @@ async function runCartChecks(
             || (await discountInput.getAttribute('class').catch(() => '') ?? '').includes('error');
 
           if (!errorVisible && !errorText && !inputInvalid) {
-            bugs.add({
+            emitBug(bugs, ctx, {
               ruleId: 'revenue:discount-invalid-no-error',
               severity: 'medium',
               bugClass: 'revenue',
               message: `Invalid discount code typed but no error feedback shown (came from ${sourceUrl})`,
               url: page.url(),
               viewport,
-            });
+            }, { title: 'Invalid discount code shows no error feedback' });
           }
         }
       }
@@ -338,14 +345,14 @@ async function runCartChecks(
         }
 
         if (!foundSentinel) {
-          bugs.add({
+          emitBug(bugs, ctx, {
             ruleId: 'revenue:cart-note-not-persisted',
             severity: 'medium',
             bugClass: 'revenue',
             message: `Cart note did not persist across reload (came from ${sourceUrl})`,
             url: page.url(),
             viewport,
-          });
+          }, { title: 'Cart note did not persist across reload' });
         }
       }
     } catch { /* swallow per-mutation error */ }
@@ -371,14 +378,14 @@ async function runCartChecks(
         const countAfter = await page.locator(LINE_ITEM_SELECTOR).count().catch(() => 0);
 
         if (countAfter >= countBefore) {
-          bugs.add({
+          emitBug(bugs, ctx, {
             ruleId: 'revenue:cart-remove-broken',
             severity: 'high',
             bugClass: 'revenue',
             message: `Clicking line-item remove did not reduce cart items (came from ${sourceUrl})`,
             url: page.url(),
             viewport,
-          });
+          }, { title: 'Line-item remove did not reduce cart items' });
         }
       }
     } catch { /* swallow per-mutation error */ }
