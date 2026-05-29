@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { BugInstance } from '../src/types.js';
 import { deduplicateBugs } from '../src/dedupe/fingerprint.js';
 import { buildHtml } from '../src/report/html-builder.js';
+import { readReportTiers } from '../src/report/finding-reader.js';
 import { exportPdf } from '../src/report/pdf-exporter.js';
 
 const BUGS_PATH = join(process.cwd(), 'data', 'bugs.jsonl');
@@ -113,7 +114,12 @@ async function main(): Promise<void> {
     confidence: 1.0,
     consensusCount: 1,
   }));
-  const html = await buildHtml(scoredRecords, { crawlDate: DATE, totalPages, sites });
+  // worktree-L: surface the rebuilt pipeline's v2 tiers (uncertain + hygiene)
+  // alongside the legacy ScoredBug main list. Safe when the files are absent —
+  // readReportTiers returns empty arrays and the report renders empty placeholders.
+  const tiers = await readReportTiers(join(process.cwd(), 'data'));
+  console.log(`Tiers: ${tiers.uncertain.length} uncertain, ${tiers.hygiene.length} hygiene, ${tiers.suppressed.length} suppressed`);
+  const html = await buildHtml(scoredRecords, { crawlDate: DATE, totalPages, sites }, undefined, tiers);
   const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
   writeFileSync(htmlPath, html, 'utf8');
   console.log(`HTML report written to ${htmlPath}`);

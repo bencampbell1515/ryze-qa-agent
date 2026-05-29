@@ -1,9 +1,11 @@
 import sharp from 'sharp';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { ScoredBug } from '../types.js';
+import type { Finding } from '../types/finding.js';
 
 const SCREENSHOTS_DIR = join(process.cwd(), 'output', 'screenshots');
+const CROPS_DIR = join(process.cwd(), 'output', 'crops');
 const DISPLAY_WIDTH = 700;
 const CROP_HEIGHT = 350;
 
@@ -67,6 +69,53 @@ export async function getCroppedScreenshot(bug: ScoredBug): Promise<CroppedScree
         .png()
         .toBuffer();
       return { dataUri: `data:image/png;base64,${buf.toString('base64')}`, viewport: found.viewport, tier: 'full' };
+    } catch { /* fall through */ }
+  }
+
+  return null;
+}
+
+/**
+ * Sibling of {@link getCroppedScreenshot} for the v2 {@link Finding} stream.
+ *
+ * Findings carry their evidence directly (worktree H + I populate `crop.path`),
+ * so this resolves the crop from the finding itself rather than guessing a
+ * full-page shot by URL slug. Resolution order:
+ *
+ *  1. `crop.path` — relative to `output/crops/` per the Finding contract — used
+ *     as the tight element crop (tier 'element'). This is the reviewer-preferred
+ *     artifact and bypasses the legacy `findFullPageShot` lookup entirely.
+ *  2. `fullPageScreenshotPath` — an absolute debug shot (tier 'full').
+ *  3. null — the finding carries no displayable evidence.
+ *
+ * @param cropsDir base directory for relative `crop.path` values; override in tests.
+ */
+export async function getCroppedScreenshotForFinding(
+  finding: Finding,
+  cropsDir = CROPS_DIR,
+): Promise<CroppedScreenshot | null> {
+  const viewport = finding.viewport ?? 'desktop';
+
+  if (finding.crop?.path) {
+    const cropPath = isAbsolute(finding.crop.path) ? finding.crop.path : join(cropsDir, finding.crop.path);
+    if (existsSync(cropPath)) {
+      try {
+        const buf = await sharp(cropPath)
+          .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
+          .png()
+          .toBuffer();
+        return { dataUri: `data:image/png;base64,${buf.toString('base64')}`, viewport, tier: 'element' };
+      } catch { /* fall through to full-page fallback */ }
+    }
+  }
+
+  if (finding.fullPageScreenshotPath && existsSync(finding.fullPageScreenshotPath)) {
+    try {
+      const buf = await sharp(finding.fullPageScreenshotPath)
+        .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
+        .png()
+        .toBuffer();
+      return { dataUri: `data:image/png;base64,${buf.toString('base64')}`, viewport, tier: 'full' };
     } catch { /* fall through */ }
   }
 

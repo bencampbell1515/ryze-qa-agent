@@ -9,6 +9,7 @@ import { deduplicateBugs, computeFingerprint } from '../src/dedupe/fingerprint.j
 import { scoreBug } from '../src/scoring/scorer.js';
 import { enforceEvidence } from '../src/scoring/evidence-enforcer.js';
 import { buildHtml } from '../src/report/html-builder.js';
+import { readReportTiers } from '../src/report/finding-reader.js';
 import { exportPdf } from '../src/report/pdf-exporter.js';
 import { gateRecords } from '../src/llm/visual-gate.js';
 import { buildSuppressedHtml } from '../src/report/suppressed-builder.js';
@@ -306,10 +307,14 @@ async function main(): Promise<void> {
     totalPages: new Set(withCategories.flatMap((b) => b.urls)).size,
     sites: ['ryzesuperfoods.com', 'shop.ryzesuperfoods.com'],
   };
+  // worktree-L: append the v2 Finding tiers (uncertain + hygiene) to the report.
+  // Empty when the gate/scope-filter were disabled for this run.
+  const tiers = await readReportTiers(join(process.cwd(), 'data'));
+  console.log(`📑 Tiers: ${tiers.uncertain.length} uncertain · ${tiers.hygiene.length} hygiene · ${tiers.suppressed.length} suppressed`);
   const html = await buildHtml(withCategories, reportMeta, {
     degradedCount: gateResult.failedCount,
     totalGated: gateResult.totalGated,
-  });
+  }, tiers);
   const htmlPath = join(OUTPUT_DIR, `audit-report-${DATE}.html`);
   writeFileSync(htmlPath, html, 'utf8');
   console.log(`\n📄 HTML report written to ${htmlPath}`);

@@ -116,6 +116,62 @@ main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
 }
 figcaption { font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.3rem; }
 
+/* Confidence badge (worktree L) — numeric, color-coded by threshold */
+.confidence-badge {
+  display: inline-block; font-size: 0.7rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; margin-left: auto;
+  vertical-align: middle; letter-spacing: 0.02em;
+}
+.confidence-badge.high { background: #d1fae5; color: #065f46; }   /* ≥ 0.8 */
+.confidence-badge.medium { background: #fef3c7; color: #92400e; } /* 0.5–0.79 */
+.confidence-badge.low { background: #fee2e2; color: #991b1b; }    /* < 0.5 */
+
+/* Tier sections (worktree L) */
+.tier-section { margin: 2.5rem 0; }
+.tier-section > .section-heading h2 { font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.tier-empty { font-size: 0.85rem; color: var(--text-secondary); font-style: italic; padding: 0.4rem 0; }
+
+/* Uncertain tier — yellow accent + REVIEW badge */
+.tier-uncertain .section-rule { background: var(--medium); height: 2px; border: none; margin-bottom: 1.1rem; opacity: 0.6; }
+.card.tier-uncertain-card {
+  border-left: 4px solid var(--medium);
+  background: #fffdf5;
+}
+.review-badge {
+  display: inline-flex; align-items: center; padding: 0.28rem 0.7rem;
+  border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+  background: var(--medium); color: white; letter-spacing: 0.05em;
+}
+
+/* Two-judge reasoning — collapsed by default, expandable */
+.judge-reasoning { margin-top: 0.8rem; font-size: 0.82rem; }
+.judge-reasoning > summary {
+  cursor: pointer; font-weight: 600; color: var(--text-secondary);
+  font-size: 0.78rem; padding: 0.3rem 0; list-style: revert;
+}
+.judge-reasoning > summary:hover { color: var(--brand); }
+.judge-reasoning .judge-row { padding: 0.4rem 0.6rem; margin-top: 0.4rem; background: #f7f7f4; border-radius: 4px; border-left: 3px solid var(--border); }
+.judge-reasoning .judge-model { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--brand); font-weight: 600; }
+.judge-reasoning .judge-verdict { font-weight: 700; text-transform: uppercase; font-size: 0.68rem; margin-left: 0.4rem; letter-spacing: 0.04em; }
+
+/* Per-dimension rubric verdicts */
+.rubric-verdicts { margin-top: 0.7rem; }
+.rubric-verdicts .rubric-row { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.8rem; padding: 0.15rem 0; }
+.rubric-verdicts .rubric-dim { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--text-secondary); }
+.rubric-verdicts .rubric-verdict-fail { color: var(--critical); font-weight: 700; }
+.rubric-verdicts .rubric-verdict-pass { color: #065f46; font-weight: 700; }
+.rubric-verdicts .rubric-verdict-uncertain { color: var(--medium); font-weight: 700; }
+
+/* Hygiene tier — muted, collapsed by default */
+.tier-hygiene .section-rule { background: var(--low); height: 2px; border: none; margin-bottom: 0.5rem; opacity: 0.4; }
+.hygiene-details { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1rem; }
+.hygiene-details > summary { cursor: pointer; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem; padding: 0.4rem 0; }
+.hygiene-details > summary:hover { color: var(--brand); }
+.hygiene-list { list-style: none; margin-top: 0.6rem; }
+.hygiene-list li { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.3rem 0; border-top: 1px solid var(--border); font-size: 0.82rem; }
+.hygiene-reason { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--low); background: #f0f0ee; padding: 0.1rem 0.4rem; border-radius: 3px; white-space: nowrap; }
+.hygiene-url { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Print / PDF */
 @media print {
   .tabs { display: none; }
@@ -126,5 +182,10 @@ figcaption { font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.3rem
   .card { break-inside: avoid; }
   body { background: white; }
   header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Force-expand collapsed panels so the static PDF shows judge reasoning +
+     hygiene exclusions — mirrors the .url-overflow print treatment above. */
+  details { display: block !important; }
+  details > summary { display: none !important; }
+  .judge-reasoning, .hygiene-details { break-inside: avoid; }
 }
 `;
