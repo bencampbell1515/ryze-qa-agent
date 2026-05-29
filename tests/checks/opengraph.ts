@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Verifies Open Graph meta tags for completeness and correctness.
@@ -20,6 +21,7 @@ export async function runOpenGraphCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   const url = page.url();
   const isProductPage = url.includes('/products/');
@@ -36,14 +38,14 @@ export async function runOpenGraphCheck(
     }
 
     if (content === null || content.trim() === '') {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId: 'seo:og-missing',
         severity: 'medium',
         bugClass: 'seo',
         message: `Missing or empty ${property}`,
         url,
         viewport,
-      });
+      }, { title: `Missing or empty ${property} tag` });
     }
   }
 
@@ -60,14 +62,14 @@ export async function runOpenGraphCheck(
     }
 
     if (ogType !== null && ogType.trim() !== '' && !/product/i.test(ogType)) {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId: 'seo:og-wrong-type',
         severity: 'medium',
         bugClass: 'seo',
         message: `og:type is "${ogType}" on a PDP — expected a value containing "product" (e.g., "product" or "og:product")`,
         url,
         viewport,
-      });
+      }, { title: 'og:type is not product on a product page' });
     }
   }
 }

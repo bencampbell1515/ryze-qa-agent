@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
 import { captureBugCrop } from '../../src/crops/bug-crop.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Checks that interactive elements on mobile have a tap target at least 32×32px.
@@ -24,6 +25,7 @@ export async function runTapTargetsCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   if (viewport !== 'mobile') return;
 
@@ -149,7 +151,7 @@ export async function runTapTargetsCheck(
         { kind: 'locator', locator: page.locator(`[data-ryze-crop="${hit.cropId}"]`) },
         { url, ruleId: 'content:tap-target-too-small', viewport, seq: hit.cropId },
       )) ?? undefined;
-    bugs.add({
+    emitBug(bugs, ctx, {
       ruleId: 'content:tap-target-too-small',
       severity: 'medium',
       bugClass: 'content',
@@ -159,6 +161,6 @@ export async function runTapTargetsCheck(
       selector: hit.selectorPath,
       outerHTMLSnippet: hit.outerHTML,
       elementScreenshot,
-    });
+    }, { title: 'Tap target too small on mobile' });
   }
 }

@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Attempts to find a newsletter signup form on the page.
@@ -56,6 +57,7 @@ export async function runNewsletterCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   try {
     const form = await findNewsletterForm(page);
@@ -126,7 +128,7 @@ export async function runNewsletterCheck(
     });
 
     if (!hasValidationSignals) {
-      bugs.add({
+      emitBug(bugs, ctx, {
         ruleId: 'content:newsletter-no-validation',
         severity: 'medium',
         bugClass: 'content',
@@ -134,7 +136,7 @@ export async function runNewsletterCheck(
           'Newsletter email input does not show validation feedback when invalid email is entered',
         url,
         viewport,
-      });
+      }, { title: 'Newsletter form lacks email validation feedback' });
     }
   } catch (err) {
     // If newsletter navigation/interaction throws unexpectedly, skip quietly

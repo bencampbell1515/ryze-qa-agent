@@ -1,5 +1,6 @@
 import { test, expect, chromium } from '@playwright/test';
 import { runOpenGraphCheck } from '../checks/opengraph.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -16,9 +17,12 @@ test('opengraph: missing og:title → seo:og-missing', async () => {
     <meta property="og:type" content="website" />
   </head><body></body></html>`);
   const bugs = fakeBugs();
-  await runOpenGraphCheck(page, bugs as any, 'desktop');
+  const findings = createFindingCollector(undefined, 'run-og'); // in-memory; never flushed
+  await runOpenGraphCheck(page, bugs as any, 'desktop', { findings, runId: 'run-og' });
   const missing = bugs.collected.find((b: any) => b.ruleId === 'seo:og-missing' && b.message.includes('og:title'));
   expect(missing).toBeDefined();
+  // worktree M2 dual-write: the same issue lands in the Finding stream.
+  expect(findings.all().find((f) => f.ruleId === 'seo:og-missing')).toBeDefined();
   await browser.close();
 });
 

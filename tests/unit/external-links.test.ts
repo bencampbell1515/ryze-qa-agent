@@ -1,6 +1,7 @@
 import { test, expect, chromium } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { runExternalLinksCheck } from '../checks/external-links.js';
+import { createFindingCollector } from '../../src/findings/index.js';
 
 const fakeBugs = () => {
   const collected: any[] = [];
@@ -27,7 +28,8 @@ test.describe('external-links: runExternalLinksCheck', () => {
       <a href="https://example.com" target="_blank">Visit</a>
     </body></html>`);
     const bugs = fakeBugs();
-    await runExternalLinksCheck(page, bugs as any, 'desktop');
+    const findings = createFindingCollector(undefined, 'run-extlink'); // in-memory; never flushed
+    await runExternalLinksCheck(page, bugs as any, 'desktop', { findings, runId: 'run-extlink' });
     expect(bugs.collected).toHaveLength(1);
     const bug = bugs.collected[0];
     expect(bug.ruleId).toBe('security:link-noopener-missing');
@@ -35,6 +37,8 @@ test.describe('external-links: runExternalLinksCheck', () => {
     expect(bug.message).toContain('https://example.com');
     // Missing noreferrer too → should mention it
     expect(bug.message).toContain('noreferrer');
+    // worktree M2 dual-write: the same issue lands in the Finding stream.
+    expect(findings.all().find((f) => f.ruleId === 'security:link-noopener-missing')).toBeDefined();
     await browser.close();
   });
 

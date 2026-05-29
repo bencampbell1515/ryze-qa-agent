@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
 import { captureBugCrop } from '../../src/crops/bug-crop.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 /**
  * Walks the DOM for all <a target="_blank"> elements and flags those missing
@@ -18,6 +19,7 @@ export async function runExternalLinksCheck(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): Promise<void> {
   const url = page.url();
 
@@ -115,7 +117,7 @@ export async function runExternalLinksCheck(
         { kind: 'locator', locator: page.locator(`[data-ryze-crop="${hit.cropId}"]`) },
         { url, ruleId: 'security:link-noopener-missing', viewport, seq: hit.cropId },
       )) ?? undefined;
-    bugs.add({
+    emitBug(bugs, ctx, {
       ruleId: 'security:link-noopener-missing',
       severity: 'medium',
       bugClass: 'content',
@@ -125,6 +127,6 @@ export async function runExternalLinksCheck(
       selector: hit.selectorPath,
       outerHTMLSnippet: hit.outerHTML,
       elementScreenshot,
-    });
+    }, { title: 'External link missing rel="noopener"' });
   }
 }

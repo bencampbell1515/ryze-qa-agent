@@ -1,9 +1,15 @@
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   parsePriceToCents,
   getCartLineItems,
   getCheckoutLineItems,
   journeyFingerprint,
+  createRunContext,
+  emitFinding,
+  buildJourneyFinding,
 } from './_helpers.js';
 
 /**
@@ -154,5 +160,58 @@ test.describe('getCheckoutLineItems', () => {
     const items = await getCheckoutLineItems(page);
     await browser.close();
     expect(items).toEqual([]);
+  });
+});
+
+// worktree M2: journeys consolidate into the shared data/findings.jsonl stream
+// by default. The RYZE_JOURNEY_FINDINGS_PATH env var still wins when set, so a
+// run can keep journey findings isolated.
+test.describe('createRunContext findings path (worktree M2 consolidation)', () => {
+  test('defaults to the shared data/findings.jsonl when the env var is unset', () => {
+    const saved = process.env.RYZE_JOURNEY_FINDINGS_PATH;
+    delete process.env.RYZE_JOURNEY_FINDINGS_PATH;
+    try {
+      const ctx = createRunContext('unit');
+      expect(ctx.findingsPath).toBe(join(process.cwd(), 'data', 'findings.jsonl'));
+    } finally {
+      if (saved !== undefined) process.env.RYZE_JOURNEY_FINDINGS_PATH = saved;
+    }
+  });
+
+  test('honors RYZE_JOURNEY_FINDINGS_PATH override', () => {
+    const saved = process.env.RYZE_JOURNEY_FINDINGS_PATH;
+    process.env.RYZE_JOURNEY_FINDINGS_PATH = '/tmp/ryze-custom-journey.jsonl';
+    try {
+      const ctx = createRunContext('unit');
+      expect(ctx.findingsPath).toBe('/tmp/ryze-custom-journey.jsonl');
+    } finally {
+      if (saved === undefined) delete process.env.RYZE_JOURNEY_FINDINGS_PATH;
+      else process.env.RYZE_JOURNEY_FINDINGS_PATH = saved;
+    }
+  });
+
+  test('emitFinding appends one JSON line per finding to the configured path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ryze-jrn-'));
+    const saved = process.env.RYZE_JOURNEY_FINDINGS_PATH;
+    process.env.RYZE_JOURNEY_FINDINGS_PATH = join(dir, 'findings.jsonl');
+    try {
+      const ctx = createRunContext('unit');
+      const finding = buildJourneyFinding({
+        runId: ctx.runId,
+        ruleId: 'journey:cart-checkout-item-mismatch',
+        severity: 'high',
+        url: 'https://www.ryzesuperfoods.com/cart',
+        title: 'Cart and checkout disagree',
+        description: 'Line items differ between cart and checkout.',
+      });
+      emitFinding(ctx, finding);
+      const lines = readFileSync(ctx.findingsPath, 'utf8').trim().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]).ruleId).toBe('journey:cart-checkout-item-mismatch');
+    } finally {
+      if (saved === undefined) delete process.env.RYZE_JOURNEY_FINDINGS_PATH;
+      else process.env.RYZE_JOURNEY_FINDINGS_PATH = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

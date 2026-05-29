@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport, Severity } from '../../src/types.js';
+import { emitBug, type DualWriteContext } from './_emit.js';
 
 const NOISE_HOSTS = [
   'klaviyo.com', 'gorgias.com', 'connect.facebook.net',
@@ -51,32 +52,33 @@ export function attachNetworkListeners(
   page: Page,
   bugs: BugCollector,
   viewport: Viewport,
+  ctx?: DualWriteContext,
 ): void {
   page.on('requestfailed', (req) => {
     if (isNoise(req.url(), undefined)) return;
     const errText = req.failure()?.errorText ?? 'unknown';
     if (errText.includes('ERR_ABORTED')) return; // request cancelled during navigation
-    bugs.add({
+    emitBug(bugs, ctx, {
       ruleId: 'network:failed',
       severity: 'high',
       bugClass: 'network',
       message: `Request failed: ${req.url()} (${errText})`,
       url: page.url(),
       viewport,
-    });
+    }, { title: 'Network request failed' });
   });
 
   page.on('response', (res) => {
     if (res.status() < 400) return;
     if (isNoise(res.url(), res.status())) return;
     const severity: Severity = res.status() >= 500 ? 'critical' : 'high';
-    bugs.add({
+    emitBug(bugs, ctx, {
       ruleId: `network:${res.status()}`,
       severity,
       bugClass: 'network',
       message: `HTTP ${res.status()}: ${res.url()}`,
       url: page.url(),
       viewport,
-    });
+    }, { title: `HTTP ${res.status()} response` });
   });
 }
