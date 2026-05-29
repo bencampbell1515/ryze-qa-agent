@@ -24,6 +24,19 @@
   --color-coral:    #ff6d5e;
   --color-lavender: #a89dff;
 
+  /* Severity ladder (finding badges) — a distinct semantic axis from the
+     brand signal colors above. Warm red→orange for critical/high, muted for
+     medium/low. */
+  --color-sev-critical: #ff4d4d;
+  --color-sev-high:     #ff8a3d;
+  --color-sev-medium:   #ffd24a;
+  --color-sev-low:      #7a8290;
+
+  /* Confidence badge (green high / yellow mid / red low). */
+  --color-conf-high: #4ccf7a;
+  --color-conf-med:  #ffd24a;
+  --color-conf-low:  #ff5b5b;
+
   --font-display: var(--font-instrument);
   --font-sans:    var(--font-geist-sans);
   --font-mono:    var(--font-jetbrains);
@@ -53,6 +66,14 @@
   --color-coral:      #ff6d5e;
   --color-lavender:   #a89dff;
 
+  --color-sev-critical: #ff4d4d;
+  --color-sev-high:     #ff8a3d;
+  --color-sev-medium:   #ffd24a;
+  --color-sev-low:      #7a8290;
+  --color-conf-high: #4ccf7a;
+  --color-conf-med:  #ffd24a;
+  --color-conf-low:  #ff5b5b;
+
   --dot-color: rgba(255, 255, 255, 0.045);
   --halo-warm: rgba(255, 181, 71, 0.06);
   --halo-cool: rgba(92, 208, 187, 0.04);
@@ -81,6 +102,15 @@
   --color-teal:       #4a6b2a;  /* olive */
   --color-coral:      #c4471a;
   --color-lavender:   #6e4d8a;  /* muted plum */
+
+  /* Severity / confidence tuned for legibility on warm cream paper. */
+  --color-sev-critical: #b81f1f;
+  --color-sev-high:     #c4631a;
+  --color-sev-medium:   #9a7a1a;
+  --color-sev-low:      #8a7d6a;
+  --color-conf-high: #4a6b2a;
+  --color-conf-med:  #9a7a1a;
+  --color-conf-low:  #b81f1f;
 
   --dot-color: rgba(26, 24, 20, 0.07);
   --halo-warm: rgba(184, 67, 26, 0.05);

@@ -1,0 +1,3 @@
+{"id":"h-run123-001","runId":"run123","discoveredAt":"2026-05-29T09:50:00.000Z","reason":"shopify-draft","url":"https://www.ryzesuperfoods.com/products/copy-of-mushroom-coffee","detail":{"shopifyStatus":"draft","handle":"copy-of-mushroom-coffee"}}
+{"id":"h-run123-002","runId":"run123","discoveredAt":"2026-05-29T09:51:00.000Z","reason":"deny-list-match","url":"https://www.ryzesuperfoods.com/pages/internal-test","detail":{"pattern":"copy-of-*"}}
+{"id":"h-run123-003","runId":"run123","discoveredAt":"2026-05-29T09:52:00.000Z","reason":"stale-replo","url":"https://www.ryzesuperfoods.com/pages/mushroom-dark-roast-espanol"}

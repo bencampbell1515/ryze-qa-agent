@@ -83,6 +83,20 @@ All colors are CSS custom properties — never hard-code `text-zinc-X`. Use `tex
 - **Status colors:** amber = running/queued (live), teal = complete (cool), coral = failed (warm error), lavender = cancelled/halting (muted).
 - **Animations:** `rise-in` + `rise-delay-1..4` on first mount for staggered reveals. Don't sprinkle micro-animations everywhere — concentrate them on page entry.
 
+## Tests
+
+Unit tests run on **vitest** (added in worktree N2 — the dashboard had no test runner before).
+
+```bash
+cd web
+npm test          # vitest run (CI mode, one-shot)
+npm run test:watch
+```
+
+Config in `vitest.config.ts` (node environment, `@/*` alias mirrored from tsconfig, picks up `lib/**/*.test.ts`). Scope is deliberately the **pure helpers** — JSONL parsing and crop-path resolution in `lib/findings-parse.ts` — plus fixture round-trip tests (`lib/__fixtures__/*.jsonl`) that pin the canonical Finding/HygieneFinding shape the daemon uploads. React/Firebase hooks are not unit-tested (no precedent, would need DOM + SDK mocks); the live dry-run against an N1-produced run is the integration test.
+
+> **Lint note:** `eslint-config-next` 16 enforces `react-hooks/set-state-in-effect`, which the pre-existing hooks (`lib/theme.tsx`, `lib/diff.ts`, `app/page.tsx`, `components/DiffView.tsx`, `components/ScanConfigModal.tsx`, and the original `useRun`/`useRunEvents` in `lib/runs.ts`) all violate — so `npm run lint` reports 7 errors on `main` today. The N2 components add none. `next build` does not gate on lint, so the deploy pipeline is unaffected.
+
 ## Deploy
 
 ```bash
