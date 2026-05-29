@@ -17,10 +17,49 @@ Automated bug-hunting agent for [ryzesuperfoods.com](https://www.ryzesuperfoods.
 - Node 20+
 - Google Chrome installed (uses system Chrome via Cloudflare O2O — no browser download)
 - `ANTHROPIC_API_KEY` in a `.env` file at project root (required for validate, discover, gate, summaries, categorise)
+- [lychee](https://lychee.cli.rs) on PATH (optional — only the cross-page link-integrity check needs it; see below)
 
 ```bash
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
+
+## Link integrity (lychee)
+
+The cross-page link-integrity check (`src/cross-page/links.ts`) shells out to
+[**lychee**](https://lychee.cli.rs), a fast async link checker written in Rust.
+It finds broken internal/outbound links and **broken anchor fragments**
+(`#section` targets that never return an HTTP error and are invisible to the
+page-level network check).
+
+lychee is **not** bundled and is **never auto-installed** — install it yourself:
+
+```bash
+# macOS
+brew install lychee
+
+# or download a release binary for any platform:
+# https://github.com/lycheeverse/lychee/releases
+
+# verify
+lychee --version    # tested against lychee 0.15.x
+```
+
+If `lychee` is not on your PATH, point the check at it via `.env`:
+
+```bash
+LYCHEE_BIN=/absolute/path/to/lychee
+```
+
+When lychee is missing, `checkLinks()` throws a clear startup error rather than
+silently skipping. The check produces `cross-page:broken-link` and
+`cross-page:broken-fragment` findings. The helper
+`checkLinksInContainer(page, selector, runId, contextLabel)` validates only the
+links inside a given DOM container — used by journey tests to catch links that
+404 *only in context* (e.g. a privacy-policy link inside the checkout
+disclaimer).
+
+> **Note:** lychee writes a `.lycheecache` cache directory. Add it to
+> `.gitignore` if you run the check at the repo root (or set `cacheDir`).
 
 ## Quick start
 
