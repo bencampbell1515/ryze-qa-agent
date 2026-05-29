@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ryze QA Audit Report — 2026-05-29</title>
+<style>
+:root {
+  --critical: #CC0000;
+  --high: #E65C00;
+  --medium: #CC8800;
+  --low: #666666;
+  --brand: #1a3a6b;
+  --bg: #f4f4f1;
+  --card-bg: #ffffff;
+  --border: #e2e8f0;
+  --text: #1a1a1a;
+  --text-secondary: #666;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+
+/* Header */
+header { background: var(--brand); color: white; padding: 2rem 2.5rem; }
+.brand { font-size: 0.7rem; letter-spacing: 0.25em; text-transform: uppercase; opacity: 0.6; margin-bottom: 0.2rem; }
+.report-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.2rem; }
+.meta { font-size: 0.82rem; opacity: 0.65; margin-bottom: 1.25rem; }
+.summary-bar { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+/* Badges */
+.badge {
+  display: inline-flex; align-items: center; padding: 0.28rem 0.7rem;
+  border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+  color: white; letter-spacing: 0.03em;
+}
+header .badge { font-size: 0.82rem; padding: 0.35rem 0.85rem; }
+.badge.critical { background: var(--critical); }
+.badge.high { background: var(--high); }
+.badge.medium { background: var(--medium); }
+.badge.low { background: var(--low); }
+
+.verify-badge { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+.verify-badge.confirmed { background: #d1fae5; color: #065f46; }
+.verify-badge.could-not-reproduce { background: #fee2e2; color: #991b1b; }
+.verify-badge.inconclusive { background: #fef3c7; color: #92400e; }
+
+/* Tabs */
+.tabs { background: white; border-bottom: 2px solid var(--border); padding: 0 2rem; display: flex; }
+.tab {
+  background: none; border: none; padding: 0.9rem 1.4rem;
+  font-size: 0.88rem; font-weight: 500; cursor: pointer;
+  color: var(--text-secondary); border-bottom: 3px solid transparent;
+  margin-bottom: -2px; font-family: var(--font);
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab:hover { color: var(--brand); }
+.tab.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+
+/* Layout */
+main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+.view.hidden { display: none; }
+
+/* Severity sections */
+.severity-section { margin-bottom: 2.5rem; }
+.section-heading { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.6rem; }
+.section-heading h2 { font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.count { font-size: 0.8rem; color: var(--text-secondary); }
+.section-rule { height: 2px; border: none; margin-bottom: 1.1rem; opacity: 0.5; }
+.section-rule.critical { background: var(--critical); }
+.section-rule.high { background: var(--high); }
+.section-rule.medium { background: var(--medium); }
+.section-rule.low { background: var(--low); }
+
+/* Category sections */
+.category-section { margin-bottom: 2.5rem; }
+.category-heading {
+  font-size: 1rem; font-weight: 700; color: var(--brand);
+  padding-bottom: 0.5rem; margin-bottom: 1rem;
+  border-bottom: 2px solid var(--border);
+}
+
+/* Finding cards */
+.card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1.2rem 1.3rem; margin-bottom: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.card-header { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.8rem; }
+.rule-id {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.78rem; color: var(--text-secondary);
+  background: #f0f0ee; padding: 0.15rem 0.45rem; border-radius: 3px;
+}
+.summary { font-size: 0.93rem; line-height: 1.65; margin-bottom: 1rem; }
+
+/* URLs */
+.urls { margin-bottom: 1rem; }
+.urls-label {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 0.35rem;
+}
+.url-list a, .url-overflow a {
+  display: block; font-size: 0.8rem; color: #0058cc;
+  text-decoration: none; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; padding: 0.08rem 0;
+}
+.url-list a:hover, .url-overflow a:hover { text-decoration: underline; }
+.url-overflow.hidden { display: none; }
+.show-more-btn {
+  background: none; border: none; color: #0058cc;
+  font-size: 0.78rem; cursor: pointer; padding: 0.2rem 0;
+  margin-top: 0.15rem; font-family: var(--font);
+}
+.show-more-btn:hover { text-decoration: underline; }
+
+/* Screenshots */
+.screenshot { margin-top: 0.9rem; }
+.screenshot img {
+  max-width: 100%; border: 1px solid var(--border);
+  border-radius: 5px; display: block;
+}
+figcaption { font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.3rem; }
+
+/* Confidence badge (worktree L) — numeric, color-coded by threshold */
+.confidence-badge {
+  display: inline-block; font-size: 0.7rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; margin-left: auto;
+  vertical-align: middle; letter-spacing: 0.02em;
+}
+.confidence-badge.high { background: #d1fae5; color: #065f46; }   /* ≥ 0.8 */
+.confidence-badge.medium { background: #fef3c7; color: #92400e; } /* 0.5–0.79 */
+.confidence-badge.low { background: #fee2e2; color: #991b1b; }    /* < 0.5 */
+
+/* Tier sections (worktree L) */
+.tier-section { margin: 2.5rem 0; }
+.tier-section > .section-heading h2 { font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.tier-empty { font-size: 0.85rem; color: var(--text-secondary); font-style: italic; padding: 0.4rem 0; }
+
+/* Uncertain tier — yellow accent + REVIEW badge */
+.tier-uncertain .section-rule { background: var(--medium); height: 2px; border: none; margin-bottom: 1.1rem; opacity: 0.6; }
+.card.tier-uncertain-card {
+  border-left: 4px solid var(--medium);
+  background: #fffdf5;
+}
+.review-badge {
+  display: inline-flex; align-items: center; padding: 0.28rem 0.7rem;
+  border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+  background: var(--medium); color: white; letter-spacing: 0.05em;
+}
+
+/* Two-judge reasoning — collapsed by default, expandable */
+.judge-reasoning { margin-top: 0.8rem; font-size: 0.82rem; }
+.judge-reasoning > summary {
+  cursor: pointer; font-weight: 600; color: var(--text-secondary);
+  font-size: 0.78rem; padding: 0.3rem 0; list-style: revert;
+}
+.judge-reasoning > summary:hover { color: var(--brand); }
+.judge-reasoning .judge-row { padding: 0.4rem 0.6rem; margin-top: 0.4rem; background: #f7f7f4; border-radius: 4px; border-left: 3px solid var(--border); }
+.judge-reasoning .judge-model { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--brand); font-weight: 600; }
+.judge-reasoning .judge-verdict { font-weight: 700; text-transform: uppercase; font-size: 0.68rem; margin-left: 0.4rem; letter-spacing: 0.04em; }
+
+/* Per-dimension rubric verdicts */
+.rubric-verdicts { margin-top: 0.7rem; }
+.rubric-verdicts .rubric-row { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.8rem; padding: 0.15rem 0; }
+.rubric-verdicts .rubric-dim { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--text-secondary); }
+.rubric-verdicts .rubric-verdict-fail { color: var(--critical); font-weight: 700; }
+.rubric-verdicts .rubric-verdict-pass { color: #065f46; font-weight: 700; }
+.rubric-verdicts .rubric-verdict-uncertain { color: var(--medium); font-weight: 700; }
+
+/* Hygiene tier — muted, collapsed by default */
+.tier-hygiene .section-rule { background: var(--low); height: 2px; border: none; margin-bottom: 0.5rem; opacity: 0.4; }
+.hygiene-details { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1rem; }
+.hygiene-details > summary { cursor: pointer; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem; padding: 0.4rem 0; }
+.hygiene-details > summary:hover { color: var(--brand); }
+.hygiene-list { list-style: none; margin-top: 0.6rem; }
+.hygiene-list li { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.3rem 0; border-top: 1px solid var(--border); font-size: 0.82rem; }
+.hygiene-reason { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--low); background: #f0f0ee; padding: 0.1rem 0.4rem; border-radius: 3px; white-space: nowrap; }
+.hygiene-url { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Print / PDF */
+@media print {
+  .tabs { display: none; }
+  .view { display: block !important; }
+  #view-category { display: none !important; }
+  .url-overflow { display: block !important; }
+  .show-more-btn { display: none; }
+  .card { break-inside: avoid; }
+  body { background: white; }
+  header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Force-expand collapsed panels so the static PDF shows judge reasoning +
+     hygiene exclusions — mirrors the .url-overflow print treatment above. */
+  details { display: block !important; }
+  details > summary { display: none !important; }
+  .judge-reasoning, .hygiene-details { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Ryze</div>
+  <div class="report-title">QA Audit Report</div>
+  <div class="meta">2026-05-29 &nbsp;&middot;&nbsp; 231 pages &nbsp;&middot;&nbsp; ryzesuperfoods.com, shop.ryzesuperfoods.com</div>
+  <div class="summary-bar">
+    <span class="badge critical">1 Critical</span>
+    <span class="badge high">1 High</span>
+    <span class="badge medium">1 Medium</span>
+    <span class="badge low">1 Low</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" id="tab-severity" onclick="showTab('severity')">By Severity</button>
+  <button class="tab" id="tab-category" onclick="showTab('category')">By Category</button>
+</div>
+<main>
+  <div class="section-heading tier-heading"><h2>Main findings</h2><span class="count">4 findings</span></div>
+  <div id="view-severity" class="view"><div class="severity-section">
+  <div class="section-heading">
+    <h2 style="color:var(--critical)">Critical</h2>
+    <span class="count">1 finding</span>
+  </div>
+  <hr class="section-rule critical">
+  <div class="card" data-severity="critical">
+  <div class="card-header">
+    <span class="badge critical">CRITICAL</span>
+    <code class="rule-id">revenue:cart-subtotal-nan</code>
+    <span class="verify-badge confirmed">✓ Confirmed</span>
+    <span class="confidence-badge high" title="confidence">97%</span>
+  </div>
+  <p class="summary">After Add-to-Cart the cart drawer subtotal renders &quot;$NaN&quot; instead of a price — checkout is unusable.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/mushroom-coffee" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/mushroom-coffee</a></div>
+  </div>
+  
+</div>
+</div><div class="severity-section">
+  <div class="section-heading">
+    <h2 style="color:var(--high)">High</h2>
+    <span class="count">1 finding</span>
+  </div>
+  <hr class="section-rule high">
+  <div class="card" data-severity="high">
+  <div class="card-header">
+    <span class="badge high">HIGH</span>
+    <code class="rule-id">content:broken-image</code>
+    
+    <span class="confidence-badge high" title="confidence">82%</span>
+  </div>
+  <p class="summary">The hero product image fails to load (naturalWidth 0) on the mobile PDP.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/mushroom-matcha" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/mushroom-matcha</a></div>
+  </div>
+  
+</div>
+</div><div class="severity-section">
+  <div class="section-heading">
+    <h2 style="color:var(--medium)">Medium</h2>
+    <span class="count">1 finding</span>
+  </div>
+  <hr class="section-rule medium">
+  <div class="card" data-severity="medium">
+  <div class="card-header">
+    <span class="badge medium">MEDIUM</span>
+    <code class="rule-id">seo:missing-meta-description</code>
+    
+    <span class="confidence-badge medium" title="confidence">60%</span>
+  </div>
+  <p class="summary">Collection page is missing a meta description, hurting search snippet quality.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/collections/all" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/collections/all</a></div>
+  </div>
+  
+</div>
+</div><div class="severity-section">
+  <div class="section-heading">
+    <h2 style="color:var(--low)">Low</h2>
+    <span class="count">1 finding</span>
+  </div>
+  <hr class="section-rule low">
+  <div class="card" data-severity="low">
+  <div class="card-header">
+    <span class="badge low">LOW</span>
+    <code class="rule-id">network:external-404</code>
+    
+    <span class="confidence-badge low" title="confidence">45%</span>
+  </div>
+  <p class="summary">A partner link in the footer returns HTTP 404.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/pages/about" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/pages/about</a></div>
+  </div>
+  
+</div>
+</div></div>
+  <div id="view-category" class="view hidden"><div class="category-section">
+  <h2 class="category-heading">Revenue <span class="count">(1)</span></h2>
+  <div class="card" data-severity="critical">
+  <div class="card-header">
+    <span class="badge critical">CRITICAL</span>
+    <code class="rule-id">revenue:cart-subtotal-nan</code>
+    <span class="verify-badge confirmed">✓ Confirmed</span>
+    <span class="confidence-badge high" title="confidence">97%</span>
+  </div>
+  <p class="summary">After Add-to-Cart the cart drawer subtotal renders &quot;$NaN&quot; instead of a price — checkout is unusable.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/mushroom-coffee" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/mushroom-coffee</a></div>
+  </div>
+  
+</div>
+</div><div class="category-section">
+  <h2 class="category-heading">Content <span class="count">(1)</span></h2>
+  <div class="card" data-severity="high">
+  <div class="card-header">
+    <span class="badge high">HIGH</span>
+    <code class="rule-id">content:broken-image</code>
+    
+    <span class="confidence-badge high" title="confidence">82%</span>
+  </div>
+  <p class="summary">The hero product image fails to load (naturalWidth 0) on the mobile PDP.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/mushroom-matcha" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/mushroom-matcha</a></div>
+  </div>
+  
+</div>
+</div><div class="category-section">
+  <h2 class="category-heading">SEO <span class="count">(1)</span></h2>
+  <div class="card" data-severity="medium">
+  <div class="card-header">
+    <span class="badge medium">MEDIUM</span>
+    <code class="rule-id">seo:missing-meta-description</code>
+    
+    <span class="confidence-badge medium" title="confidence">60%</span>
+  </div>
+  <p class="summary">Collection page is missing a meta description, hurting search snippet quality.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/collections/all" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/collections/all</a></div>
+  </div>
+  
+</div>
+</div><div class="category-section">
+  <h2 class="category-heading">Network <span class="count">(1)</span></h2>
+  <div class="card" data-severity="low">
+  <div class="card-header">
+    <span class="badge low">LOW</span>
+    <code class="rule-id">network:external-404</code>
+    
+    <span class="confidence-badge low" title="confidence">45%</span>
+  </div>
+  <p class="summary">A partner link in the footer returns HTTP 404.</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/pages/about" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/pages/about</a></div>
+  </div>
+  
+</div>
+</div></div>
+  <section class="tier-section tier-uncertain">
+  <div class="section-heading">
+    <h2 style="color:var(--medium)">Needs review</h2>
+    <span class="count">2 findings</span>
+  </div>
+  <hr class="section-rule">
+  <div class="card tier-uncertain-card" data-severity="high">
+  <div class="card-header">
+    <span class="badge high">HIGH</span>
+    <code class="rule-id">revenue:countdown-stuck</code>
+    <span class="review-badge">REVIEW</span>
+    <span class="confidence-badge medium" title="confidence">50%</span>
+  </div>
+  <p class="summary">Countdown timer may be stuck at 00:00:00</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/mushroom-cacao" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/mushroom-cacao</a></div>
+  </div>
+  <figure class="screenshot">
+        <img src="data:image/png;base64,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" data-crop-path="sample/u-1.png" alt="Flagged element crop">
+        <figcaption>desktop viewport · flagged element</figcaption>
+      </figure>
+  
+  <details class="judge-reasoning">
+    <summary>Two-judge reasoning (claude-sonnet-4-6+claude-opus-4-7)</summary>
+    <div class="judge-row"><span class="judge-model">claude-sonnet-4-6</span> timer shows 00:00:00, looks evergreen/stuck</div>
+<div class="judge-row"><span class="judge-model">claude-opus-4-7</span> could be a genuinely expired one-off promo, not deceptive</div>
+  </details>
+</div>
+<div class="card tier-uncertain-card" data-severity="medium">
+  <div class="card-header">
+    <span class="badge medium">MEDIUM</span>
+    <code class="rule-id">revenue:discount-math</code>
+    <span class="review-badge">REVIEW</span>
+    <span class="confidence-badge medium" title="confidence">55%</span>
+  </div>
+  <p class="summary">Bundle discount math may be inconsistent</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (1)</div>
+    <div class="url-list"><a href="https://www.ryzesuperfoods.com/products/bundle" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/bundle</a></div>
+  </div>
+  <figure class="screenshot">
+        <img src="data:image/png;base64,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" data-crop-path="sample/u-2.png" alt="Flagged element crop">
+        <figcaption>desktop viewport · flagged element</figcaption>
+      </figure>
+  <div class="rubric-verdicts"><div class="rubric-row">
+      <span class="rubric-dim">badge-matches-price</span>
+      <span class="rubric-verdict-fail">fail</span>
+      <span> — &quot;17% off $30&quot; should be $24.90 but shows $25.00</span>
+    </div></div>
+  <details class="judge-reasoning">
+    <summary>Two-judge reasoning (claude-sonnet-4-6+claude-opus-4-7)</summary>
+    <div class="judge-row"><span class="judge-model">claude-sonnet-4-6</span> rounding looks off by $0.10</div>
+<div class="judge-row"><span class="judge-model">claude-opus-4-7</span> within plausible rounding, low confidence</div>
+  </details>
+</div>
+</section>
+  <section class="tier-section tier-hygiene">
+  <div class="section-heading">
+    <h2 style="color:var(--low)">Hygiene</h2>
+    <span class="count">3 excluded</span>
+  </div>
+  <hr class="section-rule">
+  <details class="hygiene-details">
+    <summary>3 URLs excluded — click to review</summary>
+    <ul class="hygiene-list"><li>
+      <span class="hygiene-reason">shopify-draft</span>
+      <a class="hygiene-url" href="https://www.ryzesuperfoods.com/products/secret-launch" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/secret-launch</a> <span class="hygiene-detail">(status=DRAFT)</span>
+    </li>
+<li>
+      <span class="hygiene-reason">deny-list-match</span>
+      <a class="hygiene-url" href="https://www.ryzesuperfoods.com/products/copy-of-mushroom-coffee" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/copy-of-mushroom-coffee</a> <span class="hygiene-detail">(pattern=copy-of-*)</span>
+    </li>
+<li>
+      <span class="hygiene-reason">shopify-archived</span>
+      <a class="hygiene-url" href="https://www.ryzesuperfoods.com/products/2024-holiday-bundle" target="_blank" rel="noopener">https://www.ryzesuperfoods.com/products/2024-holiday-bundle</a> <span class="hygiene-detail">(status=ARCHIVED)</span>
+    </li></ul>
+  </details>
+</section>
+</main>
+<script>
+function showTab(name){
+  document.querySelectorAll('.view').forEach(function(v){v.classList.add('hidden');});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
+  document.getElementById('view-'+name).classList.remove('hidden');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function toggleMore(btn){
+  var ov=btn.previousElementSibling;
+  var hidden=ov.classList.contains('hidden');
+  ov.classList.toggle('hidden');
+  btn.textContent=hidden?'− Show fewer':'+ '+btn.dataset.count+' more';
+}</script>
+</body>
+</html>

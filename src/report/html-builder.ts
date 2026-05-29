@@ -1,11 +1,25 @@
 import type { ScoredBug, Severity } from '../types.js';
-import { getCroppedScreenshot } from './screenshot-cropper.js';
+import type { Finding, HygieneFinding, RubricVerdict } from '../types/finding.js';
+import type { ReportTiers } from './finding-reader.js';
+import { getCroppedScreenshot, getCroppedScreenshotForFinding } from './screenshot-cropper.js';
 import { STYLES } from './styles.js';
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low',
 };
+
+/**
+ * Numeric confidence badge, color-coded by band (worktree L):
+ * green ≥ 0.8, yellow 0.5–0.79, red < 0.5. Returns '' for an absent score so
+ * legacy records (which may not carry confidence) render unchanged.
+ */
+function confidenceBadge(confidence: number | undefined): string {
+  if (typeof confidence !== 'number' || Number.isNaN(confidence)) return '';
+  const band = confidence >= 0.8 ? 'high' : confidence >= 0.5 ? 'medium' : 'low';
+  const pct = Math.round(confidence * 100);
+  return `<span class="confidence-badge ${band}" title="confidence">${pct}%</span>`;
+}
 
 export function escapeHtml(str: string): string {
   return str
@@ -64,6 +78,7 @@ async function cardHtml(bug: ScoredBug): Promise<string> {
     <span class="badge ${bug.severity}">${escapeHtml(SEVERITY_LABEL[bug.severity].toUpperCase())}</span>
     <code class="rule-id">${escapeHtml(bug.ruleId)}</code>
     ${verifyBadge}
+    ${confidenceBadge(bug.confidence)}
   </div>
   <p class="summary">${summary}</p>
   <div class="urls">
@@ -120,6 +135,125 @@ async function categoryViewHtml(sorted: ScoredBug[]): Promise<string> {
   return html;
 }
 
+// ── worktree-L: v2 Finding tiers (uncertain + hygiene) ──────────────────────
+
+const VERDICT_CLASS: Record<RubricVerdict['verdict'], string> = {
+  fail: 'rubric-verdict-fail', pass: 'rubric-verdict-pass', uncertain: 'rubric-verdict-uncertain',
+};
+
+/** Collapsed two-judge reasoning panel. K stores the merged reasoning as
+ *  "[modelA] … | [modelB] …" in visualGate.reason and the model pair in
+ *  visualGate.judgeModel; we split on " | " to show one row per judge. */
+function judgeReasoningHtml(finding: Finding): string {
+  const gate = finding.visualGate;
+  if (!gate || !gate.reason) return '';
+  const rows = gate.reason.split(' | ').map((seg) => {
+    const m = seg.match(/^\[([^\]]+)\]\s*(.*)$/);
+    const model = m ? m[1] : gate.judgeModel;
+    const text = m ? m[2] : seg;
+    return `<div class="judge-row"><span class="judge-model">${escapeHtml(model)}</span> ${escapeHtml(text)}</div>`;
+  });
+  return `<details class="judge-reasoning">
+    <summary>Two-judge reasoning (${escapeHtml(gate.judgeModel)})</summary>
+    ${rows.join('\n')}
+  </details>`;
+}
+
+/** Per-dimension rubric verdicts (worktree I findings carry these). */
+function rubricVerdictsHtml(finding: Finding): string {
+  if (!finding.rubricVerdicts || finding.rubricVerdicts.length === 0) return '';
+  const rows = finding.rubricVerdicts.map((rv) => {
+    const disc = rv.discrepancy ? ` — ${escapeHtml(rv.discrepancy)}` : '';
+    return `<div class="rubric-row">
+      <span class="rubric-dim">${escapeHtml(rv.dimension)}</span>
+      <span class="${VERDICT_CLASS[rv.verdict]}">${escapeHtml(rv.verdict)}</span>
+      <span>${disc}</span>
+    </div>`;
+  });
+  return `<div class="rubric-verdicts">${rows.join('\n')}</div>`;
+}
+
+async function findingCardHtml(finding: Finding, opts: { uncertain?: boolean } = {}): Promise<string> {
+  const shot = await getCroppedScreenshotForFinding(finding);
+  // Always reference the crop path (worktree H/I provenance) so reviewers — and
+  // the unit suite — can see which element was flagged even when the PNG isn't
+  // co-located with the report (e.g. a portability-only render).
+  const cropAttr = finding.crop?.path ? ` data-crop-path="${escapeHtml(finding.crop.path)}"` : '';
+  const screenshotHtml = shot
+    ? `<figure class="screenshot">
+        <img src="${shot.dataUri}"${cropAttr} alt="Flagged element crop">
+        <figcaption>${escapeHtml(shot.viewport)} viewport · flagged element</figcaption>
+      </figure>`
+    : finding.crop?.path
+      ? `<figure class="screenshot">
+        <img${cropAttr} alt="Flagged element crop (${escapeHtml(finding.crop.path)})">
+        <figcaption>element crop: ${escapeHtml(finding.crop.path)}</figcaption>
+      </figure>`
+      : '';
+
+  const reviewBadge = opts.uncertain ? `<span class="review-badge">REVIEW</span>` : '';
+  const cardClass = opts.uncertain ? 'card tier-uncertain-card' : 'card';
+  const urls = [finding.url, ...(finding.relatedUrls ?? [])];
+
+  return `<div class="${cardClass}" data-severity="${finding.severity}">
+  <div class="card-header">
+    <span class="badge ${finding.severity}">${escapeHtml(SEVERITY_LABEL[finding.severity].toUpperCase())}</span>
+    <code class="rule-id">${escapeHtml(finding.ruleId)}</code>
+    ${reviewBadge}
+    ${confidenceBadge(finding.confidence)}
+  </div>
+  <p class="summary">${escapeHtml(finding.title)}</p>
+  <div class="urls">
+    <div class="urls-label">Affected pages (${urls.length})</div>
+    ${urlListHtml(urls)}
+  </div>
+  ${screenshotHtml}
+  ${rubricVerdictsHtml(finding)}
+  ${judgeReasoningHtml(finding)}
+</div>`;
+}
+
+async function uncertainSectionHtml(findings: Finding[]): Promise<string> {
+  const body = findings.length === 0
+    ? `<p class="tier-empty">No findings need review — both judges agreed on everything else.</p>`
+    : (await Promise.all(findings.map((f) => findingCardHtml(f, { uncertain: true })))).join('\n');
+  return `<section class="tier-section tier-uncertain">
+  <div class="section-heading">
+    <h2 style="color:var(--medium)">Needs review</h2>
+    <span class="count">${findings.length} finding${findings.length !== 1 ? 's' : ''}</span>
+  </div>
+  <hr class="section-rule">
+  ${body}
+</section>`;
+}
+
+function hygieneSectionHtml(hygiene: HygieneFinding[]): string {
+  const items = hygiene.map((h) => {
+    const detail = h.detail
+      ? Object.entries(h.detail).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`).join(', ')
+      : '';
+    const detailHtml = detail ? ` <span class="hygiene-detail">(${detail})</span>` : '';
+    return `<li>
+      <span class="hygiene-reason">${escapeHtml(h.reason)}</span>
+      <a class="hygiene-url" href="${escapeHtml(safeSrc(h.url))}" target="_blank" rel="noopener">${escapeHtml(h.url)}</a>${detailHtml}
+    </li>`;
+  });
+  const body = hygiene.length === 0
+    ? `<p class="tier-empty">No URLs were excluded by the scope filter for this run.</p>`
+    : `<details class="hygiene-details">
+    <summary>${hygiene.length} URL${hygiene.length !== 1 ? 's' : ''} excluded — click to review</summary>
+    <ul class="hygiene-list">${items.join('\n')}</ul>
+  </details>`;
+  return `<section class="tier-section tier-hygiene">
+  <div class="section-heading">
+    <h2 style="color:var(--low)">Hygiene</h2>
+    <span class="count">${hygiene.length} excluded</span>
+  </div>
+  <hr class="section-rule">
+  ${body}
+</section>`;
+}
+
 const INLINE_JS = `
 function showTab(name){
   document.querySelectorAll('.view').forEach(function(v){v.classList.add('hidden');});
@@ -138,6 +272,7 @@ export async function buildHtml(
   bugs: ScoredBug[],
   meta: { crawlDate: string; totalPages: number; sites: string[] },
   gateInfo?: { degradedCount: number; totalGated: number },
+  tiers?: ReportTiers,
 ): Promise<string> {
   const sorted = [...bugs].sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.score - a.score,
@@ -150,6 +285,16 @@ export async function buildHtml(
     severityViewHtml(sorted),
     categoryViewHtml(sorted),
   ]);
+
+  // worktree-L: when the rebuilt pipeline's tiers are supplied, the main bug list
+  // is framed as "Main findings" and the uncertain + hygiene tiers are appended.
+  // When `tiers` is omitted, output is byte-identical to the legacy report so
+  // existing callers (audit-only path before wiring) are unaffected.
+  const mainHeading = tiers
+    ? `<div class="section-heading tier-heading"><h2>Main findings</h2><span class="count">${bugs.length} finding${bugs.length !== 1 ? 's' : ''}</span></div>`
+    : '';
+  const uncertainSection = tiers ? await uncertainSectionHtml(tiers.uncertain) : '';
+  const hygieneSection = tiers ? hygieneSectionHtml(tiers.hygiene) : '';
 
   const banner = gateInfo && gateInfo.degradedCount > 0
     ? `<div style="background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:0.75rem 1rem;border-radius:6px;margin:1rem 0;font-size:0.95rem;">
@@ -183,8 +328,11 @@ ${banner}
   <button class="tab" id="tab-category" onclick="showTab('category')">By Category</button>
 </div>
 <main>
+  ${mainHeading}
   <div id="view-severity" class="view">${sevView}</div>
   <div id="view-category" class="view hidden">${catView}</div>
+  ${uncertainSection}
+  ${hygieneSection}
 </main>
 <script>${INLINE_JS}</script>
 </body>
