@@ -1,39 +1,30 @@
-import sharp from 'sharp';
+import { drawBoundingBox, type BoundingBox } from '../crops/overlay.js';
 
-export interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type { BoundingBox };
 
 /**
- * Draw a red rectangle around the given bounding box on a full-page screenshot.
- * Returns the annotated image as a Buffer.
+ * Draw a red rectangle around the given bounding box on a full-page screenshot,
+ * expanding the box outward by `padding` on all sides. Returns the annotated
+ * image as a Buffer.
+ *
+ * Thin wrapper over the shared {@link drawBoundingBox} overlay primitive in
+ * src/crops/overlay.ts — kept so existing callers expecting the padded,
+ * red, 4px-stroke style don't have to inline that themselves. The crop pipeline
+ * (src/crops/capture.ts) uses drawBoundingBox directly with its own styling.
  */
 export async function annotateScreenshot(
   pageScreenshotBuffer: Buffer,
   box: BoundingBox,
   padding = 20,
 ): Promise<Buffer> {
-  const { width: imgWidth, height: imgHeight } = await sharp(pageScreenshotBuffer).metadata();
-  const w = imgWidth ?? 1440;
-  const h = imgHeight ?? 900;
-
-  const rx = Math.max(0, box.x - padding);
-  const ry = Math.max(0, box.y - padding);
-  const rw = Math.min(w - rx, box.width + padding * 2);
-  const rh = Math.min(h - ry, box.height + padding * 2);
-
-  const svg = Buffer.from(`
-    <svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}"
-            fill="none" stroke="red" stroke-width="4"/>
-    </svg>
-  `);
-
-  return sharp(pageScreenshotBuffer)
-    .composite([{ input: svg, top: 0, left: 0 }])
-    .png()
-    .toBuffer();
+  return drawBoundingBox(
+    pageScreenshotBuffer,
+    {
+      x: box.x - padding,
+      y: box.y - padding,
+      width: box.width + padding * 2,
+      height: box.height + padding * 2,
+    },
+    { color: 'red', width: 4 },
+  );
 }
