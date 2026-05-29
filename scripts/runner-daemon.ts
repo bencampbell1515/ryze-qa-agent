@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
+import { uploadDirectoryRecursive } from "./upload-directory.js";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const PROJECT_ID = "live-qa-agent";
@@ -692,6 +693,53 @@ async function executeRun(runId: string) {
     if (newest) {
       updates.systemHealthPath = await uploadArtifact(runId, newest.path, "system-health.md", "text/markdown");
     }
+  }
+
+  // --- v2 rebuild artifacts (worktree N1) ---------------------------------
+  // Additive plumbing: push the canonical Finding stream, the gate tiers, the
+  // hygiene stream, and per-finding element crops to Storage so the dashboard
+  // (N2) can consume them. Each file's presence on disk is the natural gate —
+  // a run with no rubrics/gate/two-judge simply won't have produced them, and
+  // they're skipped without error. Counts are always written (0 when absent)
+  // so the UI can render tab/grid counts without fetching the JSONL.
+  const jsonlArtifacts: Array<{
+    local: string;
+    remote: string;
+    pathField: string;
+    countField: string;
+  }> = [
+    { local: "findings.jsonl",            remote: "findings.jsonl",            pathField: "findingsJsonPath",           countField: "findingsCount"   },
+    { local: "uncertain-findings.jsonl",  remote: "uncertain-findings.jsonl",  pathField: "uncertainFindingsJsonPath",  countField: "uncertainCount"  },
+    { local: "suppressed-findings.jsonl", remote: "suppressed-findings.jsonl", pathField: "suppressedFindingsJsonPath", countField: "suppressedCount" },
+    { local: "hygiene.jsonl",             remote: "hygiene.jsonl",             pathField: "hygieneJsonPath",            countField: "hygieneCount"    },
+  ];
+  for (const a of jsonlArtifacts) {
+    const localPath = join(REPO_ROOT, "data", a.local);
+    updates[a.countField] = await countJsonlLines(localPath);
+    if (existsSync(localPath)) {
+      updates[a.pathField] = await uploadArtifact(runId, localPath, a.remote, "application/x-ndjson");
+    }
+  }
+
+  // Per-finding element crops (worktree H): output/crops/<runId>/*.png →
+  // reports/<runId>/crops/. RUN_ID was passed into the audit (see spawn env),
+  // so the local crops dir is keyed by this exact Firestore run id.
+  const cropsResult = await uploadDirectoryRecursive(
+    bucket,
+    join(REPO_ROOT, "output", "crops", runId),
+    `reports/${runId}/crops`,
+    { contentTypeFor: () => "image/png", concurrency: 8 },
+  );
+  updates.cropsCount = cropsResult.uploaded.length;
+  if (cropsResult.uploaded.length > 0) {
+    updates.cropsPrefix = `gs://${STORAGE_BUCKET}/reports/${runId}/crops/`;
+  }
+  if (cropsResult.skipped.length > 0) {
+    await appendEvent(
+      runId,
+      "warn",
+      `${cropsResult.skipped.length} crop(s) failed to upload (${cropsResult.uploaded.length} succeeded)`,
+    );
   }
 
   await setRun(runId, updates);
