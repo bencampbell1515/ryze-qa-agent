@@ -84,6 +84,55 @@ export async function runMyCheck(page, bugs, viewport, ctx?: DualWriteContext) {
   `tests/unit/<check>-finding.test.ts` that drives the real check with a
   `FindingCollector` and asserts both streams.
 
+## Vision-confirmation gate (worktree J)
+
+A pre-emit accuracy layer that validates deterministic findings against their
+element crop before they're written to `data/findings.jsonl`. Where the v1
+`src/llm/visual-gate.ts` asks "is this element visible?", the J gate
+(`src/gate/`) asks a semantic question: "is this finding's CLAIM true?". It
+catches the false-positive classes that don't justify their own rubric (a title
+that loaded async flagged "missing", a slow-but-valid CDN image flagged
+"broken", a 304 flagged "failed").
+
+**Opt-in, same pattern as I's rubrics:** the gate runs only when
+`RYZE_ENABLE_GATE=1` AND a credential is reachable (`ANTHROPIC_API_KEY` in
+production). Default off — `audit-only` stays zero-cost.
+
+**Where it hooks:** `FindingCollector.flush()` (`src/findings/collector.ts`).
+Before each disk write, the *pending* (not-yet-written) slice is run through
+`runGateBatch`. This is the single chokepoint for page-check + rubric findings;
+journeys write `findings.jsonl` directly via `emitFinding` but carry a
+pre-populated `visualGate`, so the gate skips them by contract.
+
+**Three verdicts** (`src/gate/run.ts`, forced tool-use `submit_verdict`,
+`withRetries` from `src/llm/retry.ts`):
+- `confirmed` → finding kept, `visualGate.verdict = 'visible'`.
+- `refuted`, confidence ≥ `suppressThreshold` (0.8) → **suppressed**: dropped
+  from `findings.jsonl` and from `all()`, logged instead to
+  `data/suppressed-findings.jsonl` (sibling of the output file) for reviewer
+  spot-checking.
+- `refuted` below threshold / `uncertain` / no crop / soft-failure →
+  finding kept, `visualGate.verdict = 'uncertain'`. The gate never suppresses on
+  an unreadable verdict.
+
+**Scope filter** (`runGateBatch`, `GateConfig`): gates only
+`severityFloor` (default critical + high), skips `excludeCategories`,
+skips `excludeSources` (default `['rubric']` — already LLM-judged by I), and
+skips any finding that already carries `visualGate`. Out-of-scope findings pass
+through unchanged with no LLM call.
+
+**Crop dependency:** the gate can only validate findings that carry
+`crop.path`. Today that's image-check + rubric findings; network/seo/currency
+checks emit no crop, so they return `uncertain` (kept). As more checks gain
+cropping in future worktrees, the gate's suppression coverage expands
+automatically — no gate change needed.
+
+**Test pattern:** mock the Anthropic client (inject via `GateInput.client` /
+`GateConfig.client` / `createFindingCollector`'s 3rd arg) returning a
+`submit_verdict` tool_use block — identical to `visual-gate.test.ts` and
+`rubrics-runner.test.ts`. See `tests/unit/gate-run.test.ts`,
+`gate-batch.test.ts`, `gate-collector-flush.test.ts`.
+
 ## Gotchas
 
 - **`toHaveScreenshot()` is banned** — creates baselines on first run, marks test FAILED on any site change. Use `page.screenshot()` with direct file save instead. If stale baselines cause errors, delete `tests/crawl.spec.ts-snapshots/`.
