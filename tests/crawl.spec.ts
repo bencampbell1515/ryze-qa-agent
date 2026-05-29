@@ -14,7 +14,9 @@ import { runNewsletterCheck } from './checks/newsletter.js';
 import { runSearchCheck } from './checks/search.js';
 import { runExternalLinksCheck } from './checks/external-links.js';
 import { runTapTargetsCheck } from './checks/tap-targets.js';
+import { runCountdownRubricCheck, runWrongProductRubricCheck } from './checks/rubric-checks.js';
 import { emitBug } from './checks/_emit.js';
+import type { Response as PlaywrightResponse } from '@playwright/test';
 import type { UrlList, Viewport } from '../src/types.js';
 
 const URL_LIST_PATH = join(process.cwd(), 'output', 'url-list.json');
@@ -99,13 +101,26 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
   attachNetworkListeners(page, bugs, viewport, dualWrite);
 
   for (const url of allUrls) {
-    const navOk = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => true).catch((err: Error) => {
+    let navResp: PlaywrightResponse | null = null;
+    let navOk = true;
+    try {
+      navResp = await page.goto(url, { waitUntil: 'load', timeout: 30_000 });
+    } catch (err) {
       emitBug(bugs, dualWrite, { ruleId: 'network:nav-failed', severity: 'high', bugClass: 'network',
-        message: `Navigation failed: ${url} — ${err.message.split('\n')[0]}`, url, viewport },
+        message: `Navigation failed: ${url} — ${(err as Error).message.split('\n')[0]}`, url, viewport },
         { title: 'Page navigation failed' });
-      return false;
-    });
+      navOk = false;
+    }
     if (!navOk) { await page.waitForTimeout(CRAWL_DELAY_MS).catch(() => {}); continue; }
+
+    // Did Shopify 30x-redirect us? Either the response carries a redirect chain
+    // (request().redirectedFrom()) or the final path differs from the requested
+    // one. The wrong-product rubric uses this to tell a by-design fallback from a
+    // genuine mismatch. Captured here because no other check reads the response.
+    let redirected = false;
+    try {
+      redirected = !!navResp?.request().redirectedFrom() || new URL(url).pathname !== new URL(page.url()).pathname;
+    } catch { /* malformed URL — leave redirected=false */ }
 
     // Skip Cloudflare challenge pages — bot was blocked, no real content to check
     const bodyText = await page.locator('body').innerText().catch(() => '');
@@ -127,6 +142,15 @@ test('@audit — run full audit across all URLs', async ({ page, bugs, findings 
 
     if (url.includes('/products/') || url.includes('/cart')) {
       await runRevenueCheck(page, bugs, viewport, dualWrite);
+    }
+
+    // Rubric-driven checks (worktree I). No-ops unless RYZE_ENABLE_RUBRICS=1 +
+    // ANTHROPIC_API_KEY, so audit-only stays zero-cost. Findings land in
+    // findings.jsonl only. Countdown fires on any page with a countdown element;
+    // wrong-product fires on /products/ pages and uses the redirect signal above.
+    await runCountdownRubricCheck(page, dualWrite).catch(() => {});
+    if (url.includes('/products/')) {
+      await runWrongProductRubricCheck(page, dualWrite, { requestedUrl: url, redirected }).catch(() => {});
     }
 
     const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';

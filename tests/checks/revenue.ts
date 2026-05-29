@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
 import { emitBug, type DualWriteContext } from './_emit.js';
+import { cartSubtotalRubric } from '../../src/rubrics/index.js';
+import { rubricsEnabled, runRubric } from './_rubric-gate.js';
 
 const PRICE_SELECTORS = [
   '[data-product-price]',
@@ -152,6 +154,13 @@ const LINE_ITEM_SELECTOR =
 
 const SUBTOTAL_SELECTOR = '[data-cart-subtotal], .cart__subtotal, [class*="subtotal"]';
 
+// Container the cart-subtotal rubric crops when the deterministic check thinks
+// the subtotal is missing. Broad on purpose: it only needs to frame the cart
+// summary area for the rubric's visual second opinion. Falls back to main/body
+// so it always resolves something croppable.
+const CART_SUMMARY_SELECTOR =
+  'form[action*="/cart"], [data-cart], .cart__footer, .cart-drawer, .cart, [class*="cart"], main, body';
+
 async function runCartChecks(
   page: Page,
   bugs: BugCollector,
@@ -168,9 +177,37 @@ async function runCartChecks(
     const subtotal = await page.locator(SUBTOTAL_SELECTOR)
       .first().textContent().catch(() => null);
     if (!subtotal || !/\$\d/.test(subtotal)) {
-      emitBug(bugs, ctx, { ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
-        message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport },
-        { title: 'Cart subtotal missing or invalid' });
+      // The selector-based check found no subtotal. Before emitting the
+      // deterministic bug, get a visual second opinion from the cart-subtotal
+      // rubric (worktree I) — the May 28 audit's cart-subtotal-missing FPs were
+      // cases where a subtotal WAS visible but the selector missed it. The
+      // rubric only runs when opt-in (RYZE_ENABLE_RUBRICS); otherwise behaviour
+      // is exactly as before.
+      let suppressedByRubric = false;
+      if (rubricsEnabled(ctx)) {
+        const summary = page.locator(CART_SUMMARY_SELECTOR).first();
+        const result = await runRubric(
+          cartSubtotalRubric,
+          page,
+          { kind: 'locator', locator: summary },
+          { url: page.url() },
+          ctx,
+        );
+        if (result) {
+          if (result.finding === null && result.verdicts.length > 0) {
+            // Rubric positively confirmed a subtotal is visible → suppress the FP.
+            suppressedByRubric = true;
+          } else if (result.finding) {
+            // Rubric agrees it's a bug → emit the richer rubric finding alongside.
+            ctx.findings.add(result.finding);
+          }
+        }
+      }
+      if (!suppressedByRubric) {
+        emitBug(bugs, ctx, { ruleId: 'revenue:cart-subtotal-missing', severity: 'critical', bugClass: 'revenue',
+          message: `Cart subtotal missing/invalid (came from ${sourceUrl})`, url: page.url(), viewport },
+          { title: 'Cart subtotal missing or invalid' });
+      }
     }
 
     // ATC-006: prefer the submit button; fall back to anchor only if button absent

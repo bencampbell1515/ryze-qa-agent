@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import type { BugInstance } from '../../src/types.js';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import { buildFinding, type FindingCollector } from '../../src/findings/index.js';
@@ -11,6 +12,10 @@ import { buildFinding, type FindingCollector } from '../../src/findings/index.js
 export interface DualWriteContext {
   findings?: FindingCollector;
   runId?: string;
+  /** Optional injected Anthropic client for rubric-driven checks (worktree I).
+   *  Used by tests; in production the rubric runner builds one from
+   *  ANTHROPIC_API_KEY. Ignored by non-rubric checks. */
+  rubricClient?: Anthropic;
 }
 
 /**

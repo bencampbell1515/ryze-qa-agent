@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'node:fs';
 import pLimit from 'p-limit';
 import type { BugRecord } from '../types.js';
+import { withRetries } from './retry.js';
 
 const GATED_RULE_IDS = new Set([
   'content:broken-image',
@@ -85,25 +86,6 @@ function buildContent(r: BugRecord): Anthropic.MessageParam['content'] {
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
   }
   return content;
-}
-
-async function withRetries<T>(
-  fn: () => Promise<T>,
-  retryDelayMs: number,
-  maxAttempts = 3,
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (attempt === maxAttempts) break;
-      const delay = retryDelayMs * Math.pow(3, attempt - 1);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
 }
 
 async function callLLMForVerdict(client: Anthropic, r: BugRecord): Promise<Verdict> {
