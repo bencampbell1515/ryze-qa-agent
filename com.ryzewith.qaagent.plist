@@ -35,6 +35,12 @@
         <string>/Users/ryzeuser</string>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>RYZE_ENABLE_RUBRICS</key>
+        <string>1</string>
+        <key>RYZE_ENABLE_GATE</key>
+        <string>1</string>
+        <key>RYZE_ENABLE_TWO_JUDGE</key>
+        <string>1</string>
     </dict>
 
     <key>StandardOutPath</key>
