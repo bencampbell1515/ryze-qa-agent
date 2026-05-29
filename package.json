@@ -10,7 +10,7 @@
     "test:smoke": "playwright test tests/smoke/ --reporter=line",
     "lint:personas": "tsx scripts/lint-personas.ts",
     "report": "tsx scripts/report.ts",
-    "clean": "rm -f data/bugs.jsonl data/tmp/*.txt data/validated-bugs.jsonl data/discoveries.jsonl data/scored-bugs.json && rm -f output/audit-report-*.html output/audit-report-*.pdf && rm -rf output/screenshots && mkdir -p output/screenshots",
+    "clean": "rm -f data/bugs.jsonl data/tmp/*.txt data/validated-bugs.jsonl data/discoveries.jsonl data/scored-bugs.json data/uncertain-findings.jsonl && rm -f output/audit-report-*.html output/audit-report-*.pdf && rm -rf output/screenshots && mkdir -p output/screenshots",
     "dismiss": "tsx scripts/dismiss.ts",
     "validate": "tsx scripts/validate.ts",
     "discover": "tsx scripts/discover.ts",

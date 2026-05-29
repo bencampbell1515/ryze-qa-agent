@@ -133,6 +133,63 @@ automatically — no gate change needed.
 `rubrics-runner.test.ts`. See `tests/unit/gate-run.test.ts`,
 `gate-batch.test.ts`, `gate-collector-flush.test.ts`.
 
+## Two-judge routing (worktree K)
+
+A calibration layer **on top of J's gate**. Where J's single judge confidently
+confirms or refutes most findings, some claims are genuinely ambiguous from one
+crop (currency symbol off-screen in one viewport, a slow-but-loading CDN image,
+an empty-state that's arguably valid). J marks those `uncertain` and keeps them
+in the main stream. K re-judges only those with a **second model**, then routes
+by consensus so reviewers see two piles instead of one.
+
+**Three-tier output:**
+
+| Tier        | File                            | Meaning                                  |
+|-------------|---------------------------------|------------------------------------------|
+| main        | `data/findings.jsonl`           | both judges confirmed → triage these     |
+| uncertain   | `data/uncertain-findings.jsonl` | judges disagreed or both hedged → review if time |
+| suppressed  | `data/suppressed-findings.jsonl`| both judges refuted → dropped (J also writes here) |
+
+**Env flags (all three required; same opt-in pattern as I and J):**
+`RYZE_ENABLE_TWO_JUDGE=1` **AND** `RYZE_ENABLE_GATE=1` **AND** a credential
+(`ANTHROPIC_API_KEY` in production, injected `client` in tests). With
+`RYZE_ENABLE_TWO_JUDGE` unset, behaviour is **identical to J** — `uncertain`
+findings stay in `findings.jsonl` and no `uncertain-findings.jsonl` is written.
+`audit-only` stays zero-cost.
+
+**Escalation rule:** only findings where J's *single* judge returns the
+`uncertain` verdict reach the second pass. Findings J is confident about
+(`confirmed`, or `refuted`) take J's path unchanged and never cost a second call.
+Note this means **no-crop findings** (network/seo/currency — they return
+`uncertain` because the gate can't see them) route to the **uncertain tier** when
+K is on, rather than sitting in the main stream as under J alone.
+
+**Judges:** model-variant ensemble `['claude-sonnet-4-6', 'claude-opus-4-7']`
+(`src/gate/two-judge.ts` `DEFAULT_MODELS`). Same crop + pageContext as J's pass
+(zero re-capture); only `judgeModel` differs — so **no change to J's gate logic**.
+If `claude-opus-4-7` is unavailable at runtime, J's `evaluateGate` soft-fails that
+pass to `uncertain` (never throws) and K degrades to effectively single-judge.
+The routed finding's `visualGate.judgeModel` records both models joined with `+`
+(`claude-sonnet-4-6+claude-opus-4-7`) because the field is typed `string`.
+
+**Consensus → tier** (`src/gate/route.ts`; `uncertain` is a non-vote):
+- both confirmed → **main** (`visualGate.verdict='visible'`)
+- both refuted → **suppressed**
+- both uncertain / one-each disagreement → **uncertain** (`visualGate.verdict='uncertain'`, `finding.uncertain=true`, both judges' reasoning merged into `visualGate.reason`)
+- one certain + one uncertain → the certain verdict wins
+
+**Truncation:** `data/uncertain-findings.jsonl` is append-only within a run and
+truncated at run start by `npm run clean` (same convention as `bugs.jsonl`).
+`runGateBatch` is the sole writer of both the uncertain and suppressed siblings.
+(NB: J's `findings.jsonl` + `suppressed-findings.jsonl` are *not* in `clean` —
+a pre-existing gap flagged on the K PR, out of K's scope.)
+
+**Test pattern:** mock the Anthropic client keyed by **model** (the second pass
+varies the model), inject via `GateInput.client` / `GateConfig.client` /
+`createFindingCollector`'s 3rd arg, returning a `submit_verdict` tool_use block —
+same as `gate-run.test.ts`. See `tests/unit/two-judge.test.ts`, `route.test.ts`,
+`gate-two-judge-integration.test.ts`, `two-judge-collector-flush.test.ts`.
+
 ## Gotchas
 
 - **`toHaveScreenshot()` is banned** — creates baselines on first run, marks test FAILED on any site change. Use `page.screenshot()` with direct file save instead. If stale baselines cause errors, delete `tests/crawl.spec.ts-snapshots/`.
