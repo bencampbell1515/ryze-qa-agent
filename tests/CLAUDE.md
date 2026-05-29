@@ -34,6 +34,43 @@ Playwright test suite across 3 viewports: desktop (1440px), tablet (768px), mobi
 - `test.setTimeout(0)` is required on the audit test — 229 URLs × checks would exceed Playwright's default 30s test timeout almost immediately
 - `flush()` in `bug-collector.ts` skips when `testInfo.status !== 'passed' && testInfo.retry < testInfo.project.retries` — prevents partial-run data from being written before Playwright retries the test
 
+## Dual-write: BugInstance + Finding (worktree M)
+
+Checks emit to **two** streams now. The legacy `data/bugs.jsonl` (BugInstance) is
+unchanged and still feeds dedupe/score/report/visual-gate. The new
+`data/findings.jsonl` (canonical `Finding`, `src/types/finding.ts`) is additive —
+nothing downstream consumes it yet (that's a later worktree).
+
+**The pattern (use it for every migrated check):** instead of `bugs.add({...})`,
+call `emitBug` from [checks/_emit.ts](checks/_emit.ts):
+
+```ts
+import { emitBug, type DualWriteContext } from './_emit.js';
+
+export async function runMyCheck(page, bugs, viewport, ctx?: DualWriteContext) {
+  // ...
+  emitBug(bugs, ctx, { ruleId: 'cat:slug', severity, bugClass, message, url, viewport },
+    { title: 'Short headline for the Finding' });
+}
+```
+
+- `emitBug` passes the BugInstance to `bugs.add()` **verbatim** — bugs.jsonl is
+  byte-identical whether or not a Finding context is present. The Finding is
+  built by `buildFinding` (`src/findings/`) and is purely additive.
+- `ctx` (`{ findings, runId }`) is optional. The `@audit` test in `crawl.spec.ts`
+  threads it in (`findings` fixture + `resolveRunId()`); the browser-driven unit
+  tests call checks with 3 args and behave exactly as before (bug-stream only).
+- `category` is derived from the `ruleId` prefix. When that differs from the
+  legacy `bugClass` (e.g. ruleId `security:*`, bugClass `content`), the original
+  is preserved in `meta.legacyBugClass` so `toBugInstance` round-trips exactly.
+- **runId:** the daemon passes `RUN_ID` env → `resolveRunId()`; local runs fall
+  back to a date-based id. Fingerprints don't depend on runId (only the finding
+  `id` does), so the fallback is cosmetic.
+- **M1 migrated `revenue.ts` only.** M2 migrates the other active emitters
+  (seo, image, network, currency, search, newsletter, external-links,
+  tap-targets, jsonld). `visual.ts` emits nothing (screenshot capture only) — not
+  migrated. Disabled checks (a11y, console, content) are untouched.
+
 ## Gotchas
 
 - **`toHaveScreenshot()` is banned** — creates baselines on first run, marks test FAILED on any site change. Use `page.screenshot()` with direct file save instead. If stale baselines cause errors, delete `tests/crawl.spec.ts-snapshots/`.

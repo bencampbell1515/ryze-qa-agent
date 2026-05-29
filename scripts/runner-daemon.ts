@@ -491,7 +491,11 @@ async function executeRun(runId: string) {
   // by signalling -pid. Without this, only the npm process dies.
   const child = spawn("npm", ["run", "full-audit"], {
     cwd: REPO_ROOT,
-    env: { ...process.env, CI: "1" },
+    // RUN_ID flows into the audit so the v2 Finding stream (data/findings.jsonl,
+    // worktree M) stamps every finding with this run's id. The legacy
+    // bugs.jsonl path doesn't use it. Without this, findings fall back to a
+    // local date-based runId (see tests/fixtures/bug-collector.ts resolveRunId).
+    env: { ...process.env, CI: "1", RUN_ID: runId },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });

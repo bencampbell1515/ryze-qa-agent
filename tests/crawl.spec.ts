@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/bug-collector.js';
+import { test, expect, resolveRunId } from './fixtures/bug-collector.js';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { discoverUrls } from '../src/crawl/sitemap.js';
@@ -49,8 +49,14 @@ test('@crawl — discover URLs from sitemaps', async ({ page }) => {
 
 // ── @audit tag: run all checks across all URLs ────────────────────────────
 
-test('@audit — run full audit across all URLs', async ({ page, bugs }, testInfo) => {
+test('@audit — run full audit across all URLs', async ({ page, bugs, findings }, testInfo) => {
   test.setTimeout(0); // audit crawls 200+ URLs — no wall-clock limit
+
+  // worktree M: dual-write context handed to migrated checks. They emit the
+  // legacy BugInstance (unchanged) AND a canonical Finding into findings.jsonl.
+  // M1 migrates revenue.ts only; the other checks keep their 3-arg signature
+  // until M2. runId is shared across desktop/tablet/mobile within one audit.
+  const dualWrite = { findings, runId: resolveRunId() };
 
   // ACCUM-003: The 'lighthouse' project runs Lighthouse perf scores, not the general
   // URL audit. Running the audit under 'lighthouse' would label all bugs as 'desktop'
@@ -116,7 +122,7 @@ test('@audit — run full audit across all URLs', async ({ page, bugs }, testInf
     await runTapTargetsCheck(page, bugs, viewport).catch(() => {});
 
     if (url.includes('/products/') || url.includes('/cart')) {
-      await runRevenueCheck(page, bugs, viewport);
+      await runRevenueCheck(page, bugs, viewport, dualWrite);
     }
 
     const slug = url.replace(/https?:\/\/[^/]+/, '').replace(/\//g, '-').slice(0, 60) || 'root';
