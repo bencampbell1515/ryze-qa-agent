@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { BugCollector } from '../fixtures/bug-collector.js';
 import type { Viewport } from '../../src/types.js';
+import { captureBugCrop } from '../../src/crops/bug-crop.js';
 
 /**
  * Checks that interactive elements on mobile have a tap target at least 32×32px.
@@ -33,6 +34,8 @@ export async function runTapTargetsCheck(
     outerHTML: string;
     width: number;
     height: number;
+    /** Sequence tagged onto the live element via data-ryze-crop, for cropping. */
+    cropId: number;
   };
 
   const hits = (await page.evaluate(`
@@ -124,11 +127,14 @@ export async function runTapTargetsCheck(
         if (seen.has(sp)) continue;
         seen.add(sp);
 
+        var cid = out.length;
+        el.setAttribute('data-ryze-crop', String(cid));
         out.push({
           selectorPath: sp,
           outerHTML: el.outerHTML.slice(0, 300),
           width: w,
           height: h,
+          cropId: cid,
         });
       }
 
@@ -137,6 +143,12 @@ export async function runTapTargetsCheck(
   `)) as Hit[];
 
   for (const hit of hits) {
+    const elementScreenshot =
+      (await captureBugCrop(
+        page,
+        { kind: 'locator', locator: page.locator(`[data-ryze-crop="${hit.cropId}"]`) },
+        { url, ruleId: 'content:tap-target-too-small', viewport, seq: hit.cropId },
+      )) ?? undefined;
     bugs.add({
       ruleId: 'content:tap-target-too-small',
       severity: 'medium',
@@ -146,6 +158,7 @@ export async function runTapTargetsCheck(
       viewport,
       selector: hit.selectorPath,
       outerHTMLSnippet: hit.outerHTML,
+      elementScreenshot,
     });
   }
 }

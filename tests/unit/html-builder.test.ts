@@ -1,4 +1,8 @@
 import { test, expect } from '@playwright/test';
+import sharp from 'sharp';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { escapeHtml, urlListHtml, buildHtml } from '../../src/report/html-builder.js';
 
 test('escapeHtml encodes ampersands', () => {
@@ -39,4 +43,31 @@ test('buildHtml renders gate-degraded banner when degradedCount > 0', async () =
 test('buildHtml omits gate-degraded banner when degradedCount = 0', async () => {
   const html = await buildHtml([], { crawlDate: '2026-05-12', totalPages: 0, sites: ['example.com'] });
   expect(html).not.toMatch(/visual gate degraded/i);
+});
+
+test('buildHtml labels a tight element crop as "flagged element" in the figcaption', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ryze-html-'));
+  const shot = join(dir, 'c.png');
+  await sharp({ create: { width: 160, height: 90, channels: 3, background: { r: 200, g: 30, b: 30 } } })
+    .png()
+    .toFile(shot);
+
+  const bug: any = {
+    fingerprint: 'fp1',
+    ruleId: 'content:broken-image',
+    severity: 'high',
+    bugClass: 'content',
+    title: 'Broken image',
+    description: 'A visible image renders empty.',
+    urls: ['https://www.ryzesuperfoods.com/products/x'],
+    viewports: ['mobile'],
+    instanceCount: 1,
+    score: 10,
+    source: 'playwright',
+    confidence: 1,
+    consensusCount: 1,
+    elementShot: shot,
+  };
+  const html = await buildHtml([bug], { crawlDate: '2026-05-12', totalPages: 1, sites: ['ryzesuperfoods.com'] });
+  expect(html).toContain('flagged element');
 });

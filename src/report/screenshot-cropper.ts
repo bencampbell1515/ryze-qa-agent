@@ -28,7 +28,10 @@ export interface CroppedScreenshot {
 }
 
 export async function getCroppedScreenshot(bug: ScoredBug): Promise<CroppedScreenshot | null> {
-  // Tier 1: element screenshot captured during reverify
+  // Tier 1 (preferred): tight, bounding-box-overlaid element crop captured at
+  // check time by src/crops (worktree H). Element-level checks populate
+  // BugInstance.elementScreenshot → BugRecord.elementShot. Tiers 2/3 below are
+  // now fallbacks for findings without an element crop and should rarely fire.
   if (bug.elementShot && existsSync(bug.elementShot)) {
     try {
       const buf = await sharp(bug.elementShot)
