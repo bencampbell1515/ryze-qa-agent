@@ -35,10 +35,17 @@ export function urlListHtml(urls: string[]): string {
 
 async function cardHtml(bug: ScoredBug): Promise<string> {
   const screenshot = await getCroppedScreenshot(bug);
+  // Tier label: element crops (worktree-H tight crops with a drawn bounding box)
+  // are the reviewer-preferred artifact; the top-slice fallback ('crop') and
+  // full-page ('full') are labeled so reviewers know they're seeing a fallback.
+  const tierLabel =
+    screenshot?.tier === 'element' ? ' · flagged element'
+    : screenshot?.tier === 'full' ? ' · full page'
+    : '';
   const screenshotHtml = screenshot
     ? `<figure class="screenshot">
         <img src="${screenshot.dataUri}" alt="Screenshot showing the bug">
-        <figcaption>${escapeHtml(screenshot.viewport)} viewport${screenshot.tier === 'full' ? ' · full page' : ''}</figcaption>
+        <figcaption>${escapeHtml(screenshot.viewport)} viewport${tierLabel}</figcaption>
       </figure>`
     : '';
 
