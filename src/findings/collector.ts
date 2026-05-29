@@ -69,12 +69,22 @@ class FindingCollectorImpl implements FindingCollector {
     if (pending.length === 0) return; // empty / already-flushed → no file, no-op
 
     if (this.gateEnabled()) {
+      const dir = dirname(this.outputPath);
       const suppressedPath =
-        this.gateConfig?.suppressedPath ??
-        join(dirname(this.outputPath), 'suppressed-findings.jsonl');
-      const { kept } = await runGateBatch(pending, { ...this.gateConfig, suppressedPath });
+        this.gateConfig?.suppressedPath ?? join(dir, 'suppressed-findings.jsonl');
+      // worktree K: when two-judge is opted in, J-uncertain findings are routed
+      // by a second judge into the 'main' (kept) or 'uncertain' tier. runGateBatch
+      // writes the uncertain + suppressed siblings itself; we keep only `kept` in
+      // the main stream so `all()`/findings.jsonl reflect the routing.
+      const enableTwoJudge = this.twoJudgeEnabled();
+      const uncertainPath = join(dir, 'uncertain-findings.jsonl');
+      const { kept } = await runGateBatch(pending, {
+        ...this.gateConfig,
+        suppressedPath,
+        ...(enableTwoJudge ? { enableTwoJudge: true, uncertainPath } : {}),
+      });
       // Replace the pending region in-place with the kept set so `all()` reflects
-      // suppression and flushedCount stays a valid cursor into `findings`.
+      // suppression/routing and flushedCount stays a valid cursor into `findings`.
       this.findings = [...this.findings.slice(0, this.flushedCount), ...kept];
       pending = kept;
     }
@@ -93,6 +103,13 @@ class FindingCollectorImpl implements FindingCollector {
   private gateEnabled(): boolean {
     if (process.env.RYZE_ENABLE_GATE !== '1') return false;
     return Boolean(process.env.ANTHROPIC_API_KEY || this.gateConfig?.client);
+  }
+
+  /** worktree K: two-judge routing is a further opt-in layered on top of the
+   *  gate. It only matters when {@link gateEnabled} is already true (the caller
+   *  checks that first), so a credential is implied. */
+  private twoJudgeEnabled(): boolean {
+    return process.env.RYZE_ENABLE_TWO_JUDGE === '1';
   }
 }
 
