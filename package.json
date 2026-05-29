@@ -6,7 +6,7 @@
   "scripts": {
     "test:crawl": "tsx scripts/crawl.ts",
     "test:audit": "playwright test tests/crawl.spec.ts --grep @audit",
-    "test:unit": "playwright test tests/unit/ --reporter=line",
+    "test:unit": "playwright test tests/unit/ tests/cross-page/ tests/discovery/ tests/visual-regression/ tests/journeys/ --reporter=line",
     "test:smoke": "playwright test tests/smoke/ --reporter=line",
     "lint:personas": "tsx scripts/lint-personas.ts",
     "report": "tsx scripts/report.ts",
