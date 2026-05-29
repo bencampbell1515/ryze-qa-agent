@@ -33,7 +33,7 @@ Static export **cannot** use Next dynamic routes (`[id]`) without `generateStati
 
 | Collection | Doc shape (`web/lib/schema.ts`) |
 |---|---|
-| `runs/{id}` | `status`, `step`, `progress`, `requestedBy`, `requestedAt`, `startedAt?`, `completedAt?`, `bugCount?` (live during run, sums bugs.jsonl + discoveries.jsonl; pinned to scored count at completion), `urlCount?`, `urlsScanned?` (distinct-URL union across personas, capped at urlCount), `logTail?: string[]`, `reportPath?` (gs://), `pdfPath?`, `bugsJsonPath?`, `systemHealthPath?` (gs:// to system-health.md from `runMetaAnalysis()`), `scanConfig?`, `errorMessage?` |
+| `runs/{id}` | `status`, `step`, `progress`, `requestedBy`, `requestedAt`, `startedAt?`, `completedAt?`, `bugCount?` (live during run, sums bugs.jsonl + discoveries.jsonl; pinned to scored count at completion), `urlCount?`, `urlsScanned?` (distinct-URL union across personas, capped at urlCount), `logTail?: string[]`, `reportPath?` (gs://), `pdfPath?`, `bugsJsonPath?`, `systemHealthPath?` (gs:// to system-health.md from `runMetaAnalysis()`), `scanConfig?`, `errorMessage?`. **Worktree N1 (2026-05-29) adds**: `findingsJsonPath?`, `uncertainFindingsJsonPath?`, `suppressedFindingsJsonPath?`, `hygieneJsonPath?`, `cropsPrefix?`, `findingsCount?`, `uncertainCount?`, `suppressedCount?`, `hygieneCount?`, `cropsCount?` — populated when the rebuild flags are on; undefined for legacy runs (FindingsSection hides itself in that case). |
 | `runs/{id}/events/{eventId}` | `ts`, `level`, `message` — milestones + errors, NOT every log line |
 | `diffRequests/{id}` | `runIdA`, `runIdB`, `status`, `exactOnlyA?`, `exactOnlyB?`, `exactBoth?`, `semanticPairs?` (Haiku output), `semanticSkipped?`, `errorMessage?` |
 
@@ -75,6 +75,10 @@ All colors are CSS custom properties — never hard-code `text-zinc-X`. Use `tex
 | `components/DiffView.tsx` | Two-pass diff: writes a `diffRequests` doc, subscribes for results. Renders progressive states (`running-exact` → `running-semantic` → `complete`). Semantic matches get a dedicated section with confidence bars + per-pair reason. |
 | `components/ScanConfigModal.tsx` | Slide-in panel from the right. Sections: site scope, check categories (collapsible per-rule), personas, viewports, max URLs, URL exclude chips, presets stub. Captures intent into `scanConfig` field on the run doc — backend wire-up is partial (see root CLAUDE.md). |
 | `components/PlaceholderPage.tsx` | Editorial "coming soon" page used by Presets + Stats. Big serif title + roadmap checklist. |
+| `components/FindingsSection.tsx` | **Worktree N2 (2026-05-29).** Tabbed Findings section rendered inside `RunDetail` after the live log. Four tabs (Main / Needs review / Suppressed / Hygiene) with lazy per-tab fetch from `findings.jsonl` / `uncertain-findings.jsonl` / `suppressed-findings.jsonl` / `hygiene.jsonl`. Hides itself entirely when the run doc has no `findingsJsonPath` (legacy runs). |
+| `components/FindingCard.tsx` | **Worktree N2.** Single finding card: severity + confidence badges (`--color-sev-*` / `--color-conf-*` tokens added in `globals.css`), inline lazy crop (480px, object-fit:contain) via `useCropUrl`, expandable two-judge `visualGate` reasoning, expandable per-dimension `rubricVerdicts`, ruleId/source badges, expandable description/remediation. |
+| `components/FindingsList.tsx` | **Worktree N2.** Filterable list — severity / category / source multi-select, local state, no Firestore. |
+| `components/HygieneEntry.tsx` | **Worktree N2.** Compact reference row for hygiene exclusions (URL + scope-filter rule that matched). |
 
 ## Conventions
 

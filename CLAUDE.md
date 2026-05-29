@@ -308,6 +308,47 @@ Full list of filtered rule IDs, noise hosts, and URL patterns lives in [scripts/
 - **Persona completion needs an explicit `0 URLs remaining` log line (2026-05-27)** — `persona-runner.ts` breaks the session `while` loop *before* logging when `unvisited.length === 0`, so without an explicit final emit, the daemon's `current` counter stays pinned at the last session's leftover (typically SESSION_BUDGET=7 of 231). The runner emits `[persona] Session N+1: 0 URLs remaining` after the loop so the percent calc cleanly reaches 100% per persona. Don't remove this line.
 - **`bugCount` in the run doc is live, not final, until orchestrate finishes (2026-05-27)** — `readLiveBugCount()` sums `bugs.jsonl` + `discoveries.jsonl` line counts during the run and falls through to `scored-bugs.json` at the end. Mid-run numbers are pre-dedup and pre-noise-filter (slightly inflated); the value at `status: complete` is authoritative. If the UI ever shows a count that *decreases* late in the run, that's the expected swap from raw to scored — not a bug.
 - **Don't accept `npm audit fix --force` on `firebase-admin`/`next`** — both bumps suggested by audit are catastrophic downgrades (firebase-admin@10, next@9). Real fixes are upstream or via `overrides` (the postcss one); the uuid chain is accepted-risk (see "Security posture" section).
+- **`launchctl bootout` + `bootstrap` first attempt may collide (2026-05-29)** — when reloading the daemon to pick up plist env-var changes, `bootout` followed immediately by `bootstrap` can fail with `Input/output error` (exit 5) because the bootout cleanup hasn't fully completed. Retry once and it succeeds. Don't escalate to `sudo` — the error is a race, not a permissions issue. Plain `launchctl kickstart -k` only reloads the process, not the plist, so it doesn't pick up new `EnvironmentVariables`.
+- **`gh pr view --json mergeable` returns `UNKNOWN` on first call (2026-05-29)** — GitHub computes mergeable status lazily; the first query triggers computation and returns `UNKNOWN`, the second (a few seconds later) returns the real verdict. Poll: `until result=$(gh pr view N --json mergeable -q .mergeable); [ "$result" != "UNKNOWN" ]; do sleep 2; done`. The `CONFLICTING` state right after a force-push is also often stale — wait 5–10s and re-query.
+- **macOS case-insensitive FS — same-name-different-case files are the same inode (2026-05-29)** — `SETUP.md` and `setup.md` resolve to the same file on APFS/HFS+. A tarball that ships `SETUP.md` will silently overwrite an existing `setup.md` (and vice versa). Bit twice this session: once on the preflight tarball, once when `mv SETUP.md PREFLIGHT.md` accidentally moved freshly-restored content. Fix: rename one, or extract the tarball to `/tmp` first and copy the new file in with a different name.
+- **Worktree created before brief commit pushes (2026-05-29)** — recurring pattern: create `../ryze-qa-agent-X` from `main`, then commit the brief at `tasks/worktree-X-*.md` to main. The brief lands on origin but the worktree doesn't have it — session inside the worktree must `git pull origin main` before its first `Read tasks/worktree-X-*.md` or the file will 404. Document this in the kickoff prompt; better yet, commit the brief BEFORE creating the worktree.
+- **Worktree session may create a differently-named branch than the wrapper (2026-05-29)** — created `feature/worktree-M` via `git worktree add -b feature/worktree-M`, but the agent inside the worktree created `feature/worktree-M1` for the actual PR (anticipating an M1/M2 split). After the M1 merge + cleanup, `feature/worktree-M` lingered as an orphan local branch. Cleanup checklist after each worktree merge: delete BOTH the agent's branch (e.g. `feature/worktree-X1`) AND the wrapper-created branch if it differs (`feature/worktree-X`).
+- **Rebuild features are now on by default in production (2026-05-29, commit `5d560ed`)** — `RYZE_ENABLE_RUBRICS=1`, `RYZE_ENABLE_GATE=1`, `RYZE_ENABLE_TWO_JUDGE=1` live in `com.ryzewith.qaagent.plist`'s `EnvironmentVariables`. To toggle off for a one-off run: edit the plist, `cp` to `~/Library/LaunchAgents/`, then `launchctl bootout && launchctl bootstrap` (kickstart doesn't reload plist). All three features soft-fail without `ANTHROPIC_API_KEY` — no crash, just no rubric/gate/two-judge findings.
+
+## Rebuild layers (2026-05-29)
+
+The audit pipeline has six new layers on top of the legacy `BugInstance` + `bugs.jsonl` path. All ship behind opt-in env flags (production defaults are on; see plist note above). Legacy path is **byte-identical** with everything off.
+
+```
+page check → emitBug(bugs, ctx, payload, {title})
+              │            │
+              ├─ bugs.add(payload)  → data/bugs.jsonl     (legacy v1, untouched)
+              │
+              └─ buildFinding(...)  → data/findings.jsonl (v2 canonical)
+                                       │
+                  RYZE_ENABLE_GATE=1   ▼  (worktree J)
+                                       J vision-gate (per-check, pre-emit)
+                                       confirm / refute / uncertain
+                                       │
+        RYZE_ENABLE_TWO_JUDGE=1        ▼  (worktree K)
+                              J-uncertain → K second judge (different model)
+                              confirmed   → main      (findings.jsonl)
+                              refuted     → suppressed (suppressed-findings.jsonl)
+                              uncertain/disagree → uncertain-findings.jsonl
+
+RYZE_ENABLE_RUBRICS=1 (worktree I, separate path):
+  rubric checks (countdown, cart-subtotal, wrong-product) → Claude forced
+  tool-use → Finding.rubricVerdicts[] (on findings.jsonl)
+```
+
+**Tiers, daemon, dashboard:**
+- Worktree A's scope-filter writes `data/hygiene.jsonl` (excluded URLs — DRAFT/copy-of-*/archived).
+- Worktree H's `captureCrop` writes tight element crops to `output/crops/<runId>/*.png` (replaces hero shots in the report).
+- Worktree N1's daemon uploads all four JSONL streams + crops to Firebase Storage under `reports/{runId}/`, and stamps `findingsJsonPath`, `uncertainFindingsJsonPath`, `suppressedFindingsJsonPath`, `hygieneJsonPath`, `cropsPrefix` + count fields on the `runs/{id}` Firestore doc.
+- Worktree N2's dashboard (`web/components/FindingsSection.tsx`) renders the four tabs (Main / Needs review / Suppressed / Hygiene) with inline lazy-loaded crops and expandable two-judge reasoning.
+- Worktree L's report (HTML + PDF) renders three tiers (main / needs review / hygiene) with confidence badges + per-finding element crops; suppressed tier intentionally not rendered.
+
+**Test count progression for the rebuild batch:** 476 (baseline) → 728 → 764 (H) → 852 (A) → 888 (C) → 956 (D) → 1112 (M1) → 1156 (M2) → 1272 (I) → 1380 (J) → 1476 (K) → 1556 (L) → 1592 (N1; N2 added 19 web-vitest tests, root unchanged).
 
 ---
 
