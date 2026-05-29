@@ -189,3 +189,191 @@ export function journeyFingerprint(
   const signature = `${element?.role ?? ''}:${element?.name ?? ''}`;
   return sha1(`${ruleId}:${url}:${signature}`);
 }
+
+// ───────────────────────────── Run context ─────────────────────────────────
+
+/**
+ * A run's findings stream. Mirrors the orchestrate convention of JSONL files
+ * under data/ (one JSON object per line). The path is overridable via
+ * RYZE_JOURNEY_FINDINGS_PATH so a CI/daemon run can redirect it per-run.
+ */
+export interface RunContext {
+  runId: string;
+  findingsPath: string;
+  findings: Finding[];
+}
+
+function timestampSlug(): string {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '');
+}
+
+export function createRunContext(label = 'journey'): RunContext {
+  const runId = `journey-${label}-${timestampSlug()}-${Math.random().toString(36).slice(2, 6)}`;
+  const findingsPath =
+    process.env.RYZE_JOURNEY_FINDINGS_PATH ??
+    join(process.cwd(), 'data', 'journey-findings.jsonl');
+  return { runId, findingsPath, findings: [] };
+}
+
+/** Append a finding to the in-memory list and to the JSONL findings stream. */
+export function emitFinding(ctx: RunContext, finding: Finding): void {
+  ctx.findings.push(finding);
+  try {
+    mkdirSync(dirname(ctx.findingsPath), { recursive: true });
+    appendFileSync(ctx.findingsPath, JSON.stringify(finding) + '\n');
+  } catch {
+    // A non-writable findings path must not crash the journey; the in-memory
+    // list is still available for assertions.
+  }
+}
+
+// ──────────────────────────── Finding builder ──────────────────────────────
+
+export interface JourneyFindingInput {
+  runId: string;
+  ruleId: string;
+  severity: Severity;
+  url: string;
+  title: string;
+  description: string;
+  element?: { role?: string; name?: string; selector?: string };
+  relatedUrls?: string[];
+  remediation?: string;
+  /** Defaults to 1.0 (journeys are deterministic). */
+  confidence?: number;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * Construct a fully-formed journey Finding with sane defaults: source/category
+ * 'journey', deterministic fingerprint, and a pre-confirmed visualGate (journey
+ * checks opt out of the gate per docs/check-author-guide.md — there is no
+ * single element to gate).
+ */
+export function buildJourneyFinding(input: JourneyFindingInput): Finding {
+  const fingerprint = journeyFingerprint(input.ruleId, input.url, input.element);
+  return {
+    id: `f-${input.runId}-${fingerprint.slice(0, 10)}`,
+    fingerprint,
+    runId: input.runId,
+    discoveredAt: new Date().toISOString(),
+    ruleId: input.ruleId,
+    category: 'journey',
+    source: 'journey',
+    severity: input.severity,
+    url: input.url,
+    relatedUrls: input.relatedUrls,
+    element: input.element,
+    title: input.title,
+    description: input.description,
+    remediation: input.remediation,
+    confidence: input.confidence ?? 1.0,
+    visualGate: {
+      verdict: 'visible',
+      reason: 'journey flow finding — no single element to gate',
+      judgeModel: 'n/a',
+    },
+    meta: input.meta,
+  };
+}
+
+// ──────────────────────────── Add to cart ──────────────────────────────────
+
+export const DEFAULT_WWW_BASE = 'https://www.ryzesuperfoods.com';
+
+/** Matches the ATC button across RYZE's Recharge/Shopify variants. "Get Started"
+ *  is the Recharge subscription label and MUST stay (see tests/CLAUDE.md). */
+const ATC_NAME_RE = /add to cart|add to bag|subscribe|buy now|get started/i;
+
+export interface AddToCartResult {
+  added: boolean;
+  /** The product URL as seen BEFORE clicking (navigation may follow the click). */
+  productUrl: string;
+  /** Human-readable note on how/whether confirmation was detected. */
+  detail: string;
+}
+
+/**
+ * Navigate to a PDP and add the product to the cart. Accounts for the Recharge
+ * subscription widget that takes 10–15s to render (per README) by waiting up to
+ * 20s for the ATC control. Confirmation is detected via the /cart/add XHR or a
+ * cart-UI signal; the call never throws on a missing control — it returns
+ * { added: false } so the journey can decide how to report it.
+ *
+ * Test-data hygiene: this only adds a product to a cart (no checkout submission,
+ * no account, no PII). Per the brief's analytics note, an ATC event may reach
+ * Klaviyo/Amplitude; flag such runs in the PR.
+ */
+export async function addToCart(
+  page: Page,
+  productHandle: string,
+  opts: { baseUrl?: string } = {},
+): Promise<AddToCartResult> {
+  const baseUrl = opts.baseUrl ?? DEFAULT_WWW_BASE;
+  const productUrlTarget = productHandle.startsWith('http')
+    ? productHandle
+    : `${baseUrl}/products/${productHandle.replace(/^\/?(products\/)?/, '')}`;
+
+  await page.goto(productUrlTarget, { waitUntil: 'domcontentloaded' });
+
+  const atc = page.getByRole('button', { name: ATC_NAME_RE }).first();
+  try {
+    await atc.waitFor({ state: 'visible', timeout: 20_000 });
+  } catch {
+    return { added: false, productUrl: page.url(), detail: 'ATC control never rendered within 20s' };
+  }
+
+  // Capture the URL BEFORE clicking — Recharge can redirect on click.
+  const productUrl = page.url();
+
+  // Arm the confirmation listeners before the click so we don't miss the XHR.
+  const addXhr = page
+    .waitForResponse((r) => /\/cart\/(add|change)(\.js)?/.test(r.url()), { timeout: 18_000 })
+    .catch(() => null);
+
+  let detail = '';
+  await atc.click({ timeout: 15_000 }).catch((e: unknown) => {
+    detail = `click failed: ${e instanceof Error ? e.message : String(e)}`;
+  });
+
+  const xhr = await addXhr;
+  let added = false;
+  if (xhr && xhr.status() < 400) {
+    added = true;
+    detail = `cart/add → HTTP ${xhr.status()}`;
+  }
+  if (!added) {
+    const cartUi = page
+      .locator(
+        'cart-drawer[open], #cart-notification.active, .cart-count-bubble, #cart-icon-bubble, [data-cart-count]:not([data-cart-count="0"])',
+      )
+      .first();
+    const seen = await cartUi
+      .waitFor({ state: 'visible', timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (seen) {
+      added = true;
+      detail = detail || 'cart UI signalled an item was added';
+    }
+  }
+
+  // Let any drawer settle; never throw if the page closed (CF long-session).
+  await page.waitForTimeout(1_000).catch(() => {});
+
+  return { added, productUrl, detail: detail || (added ? 'added' : 'no add confirmation detected') };
+}
+
+// ──────────────────────────── Locale utilities ─────────────────────────────
+
+/** Load the canonical record (brand facts, locale prefixes) from config. */
+export function loadCanonicalRecord(): CanonicalRecord {
+  const path = join(process.cwd(), 'config', 'canonical-record.json');
+  return JSON.parse(readFileSync(path, 'utf8')) as CanonicalRecord;
+}
+
+/** The `<html lang>` attribute value, lowercased, or null. */
+export async function getHtmlLang(page: Page): Promise<string | null> {
+  const lang = await page.locator('html').getAttribute('lang').catch(() => null);
+  return lang ? lang.toLowerCase() : null;
+}
