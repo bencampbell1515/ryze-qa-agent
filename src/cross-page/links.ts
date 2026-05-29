@@ -13,7 +13,10 @@
  * lychee is NOT bundled. It must be on PATH or pointed at via LYCHEE_BIN /
  * config.binPath. See the README "Link integrity (lychee)" section for install.
  *
- * Pinned/known-good lychee version: 0.15.x (JSON `fail_map` schema).
+ * Verified against lychee 0.24.2. Failures land in `error_map` (older
+ * versions used `fail_map`; the parser reads both). Status objects carry
+ * `{ text, details, code? }`; broken fragments report `text: "Cannot find
+ * fragment"` with no code.
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';

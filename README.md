@@ -41,7 +41,7 @@ brew install lychee
 # https://github.com/lycheeverse/lychee/releases
 
 # verify
-lychee --version    # tested against lychee 0.15.x
+lychee --version    # verified against lychee 0.24.2
 ```
 
 If `lychee` is not on your PATH, point the check at it via `.env`:
