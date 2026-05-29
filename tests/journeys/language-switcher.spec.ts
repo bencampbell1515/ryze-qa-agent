@@ -41,17 +41,41 @@ const ENGLISH_SHOP_ALL = /\bshop all\b/i;
  * switch was attempted, or null if no switcher was found.
  */
 async function trySwitchLocale(page: Page, locale: string, prefix: string): Promise<string | null> {
-  // Strategy 1: a direct locale link (most robust).
+  const noslash = prefix.replace(/\/$/, ''); // "/es"
+
+  // The RYZE storefront uses Shopify Dawn's <localization-form>: a disclosure
+  // whose locale <a> links are revealed by clicking a toggle button. Open any
+  // such toggle first so the locale links become actionable.
+  const toggles = page.locator(
+    'localization-form button, .disclosure__button, button[aria-expanded][aria-controls*="anguage" i], button[aria-expanded][aria-controls*="ountry" i]',
+  );
+  const toggleCount = await toggles.count().catch(() => 0);
+  for (let i = 0; i < toggleCount; i++) {
+    await toggles.nth(i).click({ timeout: 3_000 }).catch(() => {});
+  }
+
+  // Strategy 1: a locale anchor, matching BOTH relative ("/es") and absolute
+  // ("https://…/es") hrefs, including links inside the disclosure list.
   const localeLink = page
     .locator(
-      `a[hreflang="${locale}" i], a[href^="${prefix}"], a[href="${prefix.replace(/\/$/, '')}"]`,
+      [
+        `a[hreflang="${locale}" i]`,
+        `a[href$="${noslash}"]`,
+        `a[href*="${noslash}/"]`,
+        `a[href*="${noslash}?"]`,
+      ].join(', '),
     )
     .first();
   if ((await localeLink.count().catch(() => 0)) > 0) {
-    await Promise.all([
-      page.waitForLoadState('domcontentloaded').catch(() => {}),
-      localeLink.click({ timeout: 10_000 }).catch(() => {}),
-    ]);
+    const href = await localeLink.getAttribute('href').catch(() => null);
+    const clicked = await localeLink.click({ timeout: 6_000 }).then(() => true).catch(() => false);
+    if (!clicked && href) {
+      // Link present but not actionable (collapsed disclosure) — follow its href.
+      await page.goto(new URL(href, page.url()).toString(), { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      return 'locale-href-nav';
+    }
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
     return 'locale-link';
   }
 
@@ -80,6 +104,26 @@ async function trySwitchLocale(page: Page, locale: string, prefix: string): Prom
       await page.waitForLoadState('domcontentloaded').catch(() => {});
       return 'locale-select';
     }
+  }
+
+  // Strategy 4 (fallback): the storefront advertises the locale via a head
+  // <link rel="alternate" hreflang>. On RYZE, the interactive switcher is a
+  // JS-built Shopify Dawn <localization-form> disclosure that is NOT reliably
+  // present in the queryable DOM under headless Chrome (verified live: the
+  // tag string is in the HTML but querySelectorAll returns 0). When the
+  // interactive control can't be actuated, follow the advertised localized URL
+  // so we still validate the localized experience (URL prefix + <html lang> +
+  // content). TODO: actuate the real disclosure switcher once a stable handle
+  // is found (may require a headed run or a specific viewport/footer reveal).
+  const altHref = await page
+    .locator(`link[rel="alternate"][hreflang="${locale}" i]`)
+    .first()
+    .getAttribute('href')
+    .catch(() => null);
+  if (altHref) {
+    await page.goto(new URL(altHref, page.url()).toString(), { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    return 'alternate-link-nav';
   }
 
   return null;
@@ -144,10 +188,7 @@ test.describe('journey: language switcher', () => {
     //    brief flags this journey as exploratory.
     if (urlSwitched) {
       const bodyText = ((await page.locator('body').textContent().catch(() => '')) ?? '');
-      const cartLink = page.locator('a[href*="/cart"]').first();
-      const cartText = ((await cartLink.textContent().catch(() => '')) ?? '').trim();
-
-      const hasSpanishHint = SPANISH_HINTS.test(bodyText) || SPANISH_HINTS.test(cartText);
+      const hasSpanishHint = SPANISH_HINTS.test(bodyText);
       const hasEnglishShopAll = ENGLISH_SHOP_ALL.test(bodyText);
       const contentStillEnglish = !hasSpanishHint && hasEnglishShopAll;
 
@@ -163,7 +204,6 @@ test.describe('journey: language switcher', () => {
           meta: {
             step: 'content-check',
             switchMethod: method,
-            cartLinkText: cartText || null,
             hasSpanishHint,
             hasEnglishShopAll,
             url: switchedUrl,

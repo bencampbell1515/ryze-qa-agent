@@ -27,6 +27,10 @@ import {
   emitFinding,
   buildJourneyFinding,
   addToCart,
+  gotoCart,
+  waitForCartItems,
+  getCartLineItems,
+  looksLikeCheckout,
   DEFAULT_WWW_BASE,
 } from './_helpers.js';
 // LOCAL STUB until worktree B lands; swap to ../../src/cross-page/links-journey-helper.js then.
@@ -45,11 +49,17 @@ const DISCLAIMER_SELECTOR_CANDIDATES = [
   '.os-step__footer',
   '[data-merchandise-policies]',
   '.policy-list',
+  // Modern (Checkout Extensibility) one-page checkout footers.
+  '.os-footer',
+  '[data-merchandise-summary] ~ footer',
   'footer[role="contentinfo"]',
   '[role="contentinfo"]',
   '.section--footer',
   '.main__footer',
   'footer',
+  // Last-resort scoped fallback: the checkout main content (still narrower than
+  // <body>). resolveDisclaimerSelector only accepts it if it has policy links.
+  'main',
 ];
 
 /** Find the first candidate selector that exists and contains policy links. */
@@ -101,8 +111,31 @@ test.describe('journey: checkout disclaimer links', () => {
       return;
     }
 
-    // 3. Cart.
-    await page.goto(`${DEFAULT_WWW_BASE}/cart`, { waitUntil: 'domcontentloaded' });
+    // 3. Cart. Verify the item actually persisted — under headless bot
+    //    automation the cart can render empty even after a 200 /cart/add
+    //    (verified live 2026-05). Proceeding to checkout with an empty cart
+    //    lands on an empty-cart checkout page with no disclaimer, which would
+    //    be a FALSE "disclaimer-missing" critical. Stop honestly instead.
+    await gotoCart(page);
+    await waitForCartItems(page);
+    if ((await getCartLineItems(page)).length === 0) {
+      emitFinding(
+        ctx,
+        buildJourneyFinding({
+          runId: ctx.runId,
+          ruleId: 'journey:flow-incomplete',
+          severity: 'medium',
+          url: page.url(),
+          title: 'Cart rendered empty after add-to-cart; checkout-disclaimer check skipped',
+          description:
+            'The cart showed no line items on /cart after a confirmed add (the add did not persist in this context). ' +
+            'Skipping checkout so we do not raise a false disclaimer-missing on an empty-cart checkout page.',
+          meta: { step: 'verify-cart-persisted' },
+        }),
+      );
+      await testInfo.attach('journey-findings.json', { body: JSON.stringify(ctx.findings, null, 2), contentType: 'application/json' });
+      return;
+    }
 
     // 4. Checkout (cross-origin allowed within the same browser context).
     const checkoutBtn = page
@@ -135,7 +168,35 @@ test.describe('journey: checkout disclaimer links', () => {
       checkoutBtn.click({ timeout: 15_000 }).catch(() => {}),
     ]);
     await page.waitForLoadState('domcontentloaded').catch(() => {});
+    // Let any redirect chain + JS-rendered footer/policy region settle.
+    await page.waitForTimeout(3_000).catch(() => {});
     const checkoutUrl = page.url();
+
+    // 4b. Verify we actually reached checkout. In a bot/headless context the
+    //     storefront bounces the checkout click back to the homepage (verified
+    //     live 2026-05: clicking checkout lands on "/", not a Shopify checkout).
+    //     When that happens we must NOT cry "disclaimer-missing" — that would be
+    //     a false critical. Record an honest flow-incomplete instead.
+    if (!(await looksLikeCheckout(page))) {
+      emitFinding(
+        ctx,
+        buildJourneyFinding({
+          runId: ctx.runId,
+          ruleId: 'journey:flow-incomplete',
+          severity: 'medium',
+          url: checkoutUrl,
+          title: 'Checkout was not reachable; disclaimer-link check could not run',
+          description:
+            `After clicking checkout, the page is "${checkoutUrl}", which is not a Shopify checkout. ` +
+            `In a bot/headless context the storefront bounces the checkout handoff back to the storefront, so the ` +
+            `in-checkout disclaimer cannot be inspected here. Run this journey in a context that can reach Shopify ` +
+            `checkout (the trusted O2O session the live audit uses) to validate the checkout disclaimer links.`,
+          meta: { step: 'reach-checkout', landedUrl: checkoutUrl },
+        }),
+      );
+      await testInfo.attach('journey-findings.json', { body: JSON.stringify(ctx.findings, null, 2), contentType: 'application/json' });
+      return;
+    }
 
     // 5. Locate the disclaimer / policy container.
     const disclaimerSelector = await resolveDisclaimerSelector(page);

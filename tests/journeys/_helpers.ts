@@ -364,6 +364,69 @@ export async function addToCart(
   return { added, productUrl, detail: detail || (added ? 'added' : 'no add confirmation detected') };
 }
 
+/**
+ * Navigate to /cart resiliently. After addToCart, some themes auto-redirect to
+ * /cart; an unconditional goto then races that in-flight navigation and throws
+ * "interrupted by another navigation". This settles first, no-ops if already on
+ * /cart, and retries once on interruption.
+ */
+export async function gotoCart(page: Page, baseUrl: string = DEFAULT_WWW_BASE): Promise<void> {
+  const cartUrl = `${baseUrl}/cart`;
+  const onCart = (): boolean => {
+    try {
+      return new URL(page.url()).pathname.replace(/\/$/, '') === '/cart';
+    } catch {
+      return false;
+    }
+  };
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  if (onCart()) return;
+  await page.goto(cartUrl, { waitUntil: 'domcontentloaded' }).catch(async () => {
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    if (!onCart()) {
+      await page.goto(cartUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    }
+  });
+}
+
+/**
+ * True when the page is a Shopify checkout: same-origin /checkouts/, the
+ * checkout subdomain, shop.app, or a checkout DOM marker. Used to distinguish
+ * "reached checkout" from the bot/headless bounce-to-storefront so journeys
+ * don't raise false criticals when checkout was never actually reached.
+ */
+export async function looksLikeCheckout(page: Page): Promise<boolean> {
+  try {
+    const u = new URL(page.url());
+    if (/\/checkouts?(\/|$)/i.test(u.pathname)) return true;
+    if (/(^|\.)shopify\.com$/i.test(u.hostname)) return true;
+    if (/^checkout\./i.test(u.hostname)) return true;
+    if (/(^|\.)shop\.app$/i.test(u.hostname)) return true;
+  } catch {
+    /* fall through to DOM check */
+  }
+  // DOM fallback uses ONLY unambiguous checkout markers. Generic attributes
+  // like [data-step] or .section--shipping-address appear on storefront
+  // sliders/sections too and caused false "reached checkout" positives.
+  const marker = page
+    .locator('#checkout-main, form[data-payment-form], #checkout_payment_gateway, main[data-checkout]')
+    .first();
+  return (await marker.count().catch(() => 0)) > 0;
+}
+
+/**
+ * Best-effort wait for cart line items to render. The RYZE /cart is JS-rendered
+ * (items appear a beat after domcontentloaded); extracting too early returns an
+ * empty list. Waits for a quantity input / cart-item / product link, capped.
+ */
+export async function waitForCartItems(page: Page, timeoutMs = 8_000): Promise<void> {
+  await page
+    .locator('input[type="number"], input[name*="quantity" i], .cart-item, [data-cart-item], a[href*="/products/"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: timeoutMs })
+    .catch(() => {});
+}
+
 // ──────────────────────────── Locale utilities ─────────────────────────────
 
 /** Load the canonical record (brand facts, locale prefixes) from config. */

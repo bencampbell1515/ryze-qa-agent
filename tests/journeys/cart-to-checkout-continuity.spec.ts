@@ -23,6 +23,9 @@ import {
   emitFinding,
   buildJourneyFinding,
   addToCart,
+  gotoCart,
+  waitForCartItems,
+  looksLikeCheckout,
   getCartLineItems,
   getCheckoutLineItems,
   DEFAULT_WWW_BASE,
@@ -61,8 +64,9 @@ test.describe('journey: cart → checkout continuity', () => {
       return;
     }
 
-    // Capture cart line items.
-    await page.goto(`${DEFAULT_WWW_BASE}/cart`, { waitUntil: 'domcontentloaded' });
+    // Capture cart line items (wait for the JS-rendered cart to populate).
+    await gotoCart(page);
+    await waitForCartItems(page);
     const cartItems = await getCartLineItems(page);
 
     if (cartItems.length === 0) {
@@ -102,10 +106,31 @@ test.describe('journey: cart → checkout continuity', () => {
       checkoutBtn.click({ timeout: 15_000 }).catch(() => {}),
     ]);
     await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForTimeout(2_000).catch(() => {});
     const checkoutUrl = page.url();
 
-    // Capture checkout line items (give the order summary a moment to hydrate).
-    await page.waitForTimeout(2_000).catch(() => {});
+    // Verify we actually reached checkout. In a bot/headless context the
+    // storefront bounces the checkout handoff back to the storefront; comparing
+    // against that page would raise a false "item-mismatch" critical for every
+    // cart item. Record an honest flow-incomplete instead and stop.
+    if (!(await looksLikeCheckout(page))) {
+      emitFinding(ctx, buildJourneyFinding({
+        runId: ctx.runId,
+        ruleId: 'journey:flow-incomplete',
+        severity: 'medium',
+        url: checkoutUrl,
+        title: 'Checkout was not reachable; cart→checkout continuity could not be verified',
+        description:
+          `After clicking checkout, the page is "${checkoutUrl}", which is not a Shopify checkout. In a bot/headless ` +
+          `context the storefront bounces the checkout handoff, so checkout line items cannot be compared here. Run ` +
+          `this journey in a context that can reach Shopify checkout (the trusted O2O session the live audit uses).`,
+        meta: { step: 'reach-checkout', landedUrl: checkoutUrl },
+      }));
+      await testInfo.attach('journey-findings.json', { body: JSON.stringify(ctx.findings, null, 2), contentType: 'application/json' });
+      return;
+    }
+
+    // Capture checkout line items.
     const checkoutItems = await getCheckoutLineItems(page);
 
     // Compare: every cart item must appear in checkout with matching qty & price.
